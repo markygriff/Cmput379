@@ -34,8 +34,9 @@ int main(int argc, char* argv[]) {
       char** info;
       int i = 0;
 
-      info = malloc(1 * sizeof(char*));
+      info = malloc(4 * sizeof(char*));
       file = fopen("/proc/loadavg", "r");
+      printf("hello\n");
       while ((read = getline(&line, &len, file)) != -1) {
         info[i] = strdup(line);
         i++;
