@@ -60,7 +60,7 @@ int main(int argc, char* argv[]) {
         fscanf(loadavg, "%f %f %f %s", &one, &five, &fifteen, procs);
         fclose(loadavg);
 
-        printf("-a1monitor: >>>>>>>>>>>\n");
+        printf("\n-a1monitor: >>>>>>>>>>>\n");
         system("date");
         printf("Load average:  %.2f %.2f %.2f\nProcesses:  %s\n", one, five, fifteen, procs);
         printf("<<<<<<<<<<\n\n");
@@ -69,11 +69,11 @@ int main(int argc, char* argv[]) {
         // check if parent has terminated
         pid_t done = waitpid(ppid, &status, 0);
         if(done == ppid) {
-          printf("-a1monitor: parent terminated?\n");
+          printf("\n-a1monitor: parent terminated?\n");
           return 0;
         }
         else {
-          printf("-a1monitor: waitpid error\n");
+          printf("\n-a1monitor: waitpid error\n");
         }
       }
       return 0;
@@ -81,8 +81,8 @@ int main(int argc, char* argv[]) {
     else { // a1shell process
       // allow time for child print to stdout
       sleep(1);
-      char cmd[1024];
-      times();
+      int i = 0;
+      char cmd[1024]; // can store 10 strings of 1024 length
       while(1) {
         printf("a1shell%% ");
         scanf("%s", cmd);
@@ -111,11 +111,32 @@ int main(int argc, char* argv[]) {
           break;
         }
         else {
-          printf("-a1shell: Operation '%s' not permitted\n", cmd);
+          char args[1024];
+          char cmd_with_args[1024];
+          fgets(args, sizeof(args), stdin);
+          strcpy(cmd_with_args, cmd);
+          strcat(cmd_with_args, args);
+          /* printf("-a1shell: args: %s\n", args); */
+          /* printf("-a1shell: cmd with args: %s\n", cmd_with_args); */
+
+          // begin new process to exec cmd arg1 arg2 ...
+          pid_t pid2;
+          pid2 = fork();
+          if(pid2 == 0) { // execl process
+            /* printf("-a1shell: execl: attempting to run command '%s'\n", cmd_with_args); */
+            execl("/bin/bash", "bash", "-c", cmd_with_args, (char*) 0);
+            // execl only returns on failure
+            perror("-a1shell: execl: failed");
+          }
+          else { // a1shell process
+            sleep(1);
+            waitpid(pid2);
+            printf("a1shell: execl process terminated?\n");
+          }
         }
       } //while
 
-      printf("-a1shell: preparing to wait for child");
+      printf("-a1shell: waiting for child to terminate...");
       // wait for child to terminate
       if(pid == wait(&status)) {
         printf("-a1shell: child terminated?\n");
