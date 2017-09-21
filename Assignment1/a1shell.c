@@ -3,8 +3,10 @@
 #include <unistd.h>
 #include <string.h>
 #include <sys/time.h>
+#include <sys/times.h>
 #include <sys/resource.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 
 // Mark Griffith 1422270
 
@@ -60,17 +62,17 @@ int main(int argc, char* argv[]) {
         fscanf(loadavg, "%f %f %f %s", &one, &five, &fifteen, procs);
         fclose(loadavg);
 
-        printf("\n-a1monitor: >>>>>>>>>>>\n");
+        printf("\n-a1monitor: >>>>>>>>>>>>>>>>\n");
         system("date");
         printf("Load average:  %.2f %.2f %.2f\nProcesses:  %s\n", one, five, fifteen, procs);
-        printf("<<<<<<<<<<\n\n");
+        printf("<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n\n");
         sleep(interval);
 
         // check if parent has terminated
         pid_t done = waitpid(ppid, &status, 0);
         if(done == ppid) {
           printf("\n-a1monitor: parent terminated?\n");
-          return 0;
+          break;
         }
         else {
           printf("\n-a1monitor: waitpid error\n");
@@ -79,11 +81,13 @@ int main(int argc, char* argv[]) {
       return 0;
     }
     else { // a1shell process
-      // allow time for child print to stdout
+      // allow time for a1monitor to print to stdout
       sleep(1);
       int i = 0;
-      char cmd[1024]; // can store 10 strings of 1024 length
+      char cmd[1024];
+
       while(1) {
+        // shell prompt for the user
         printf("a1shell%% ");
         scanf("%s", cmd);
 
@@ -100,38 +104,74 @@ int main(int argc, char* argv[]) {
             printf("%s\n", pwd);
           }
           else {
-            printf("-a1shell: getcwd failed\n");
+            perror("-a1shell: getcwd: failed\n");
           }
         }
-        else if(strcmp(cmd, "unmask") == 0) {
-          printf("UNMASK\n");
+        else if(strcmp(cmd, "umask") == 0) {
+          mode_t mask = umask(0);
+          printf("-a1shell: mask: %o\n", mask);
+          printf("-a1shell: S_IRWXU: ");
+          printf("-a1shell: S_IRWXG: ");
+          printf("-a1shell: S_IRWXO: ");
         }
         else if(strcmp(cmd, "done") == 0) {
           printf("exiting a1shell...\n");
           break;
         }
-        else {
+        else { // attempt to execute command using /bin/bash
           char args[1024];
           char cmd_with_args[1024];
+
           fgets(args, sizeof(args), stdin);
           strcpy(cmd_with_args, cmd);
           strcat(cmd_with_args, args);
           /* printf("-a1shell: args: %s\n", args); */
           /* printf("-a1shell: cmd with args: %s\n", cmd_with_args); */
 
-          // begin new process to exec cmd arg1 arg2 ...
           pid_t pid2;
+
+          // record user and CPU times for the current process
+          // NOTE: we are assuming the time taken for the process is
+          //       within the range of an int type
+          static struct tms st_buf;
+          static struct tms end_buf;
+          static clock_t start_time;
+          static clock_t end_time;
+
+          // start clock
+          start_time = times(&st_buf);
+          /* printf("-a1shell: start time: %jd\n", start_time); */
+          /* printf("-a1shell: user time: %jd\n", st_buf.tms_utime); */
+          /* printf("-a1shell: cpu time: %jd\n", st_buf.tms_stime); */
+          /* printf("-a1shell: child user time: %jd\n", st_buf.tms_cutime); */
+          /* printf("-a1shell: child cpu time time: %jd\n", st_buf.tms_cstime); */
+
+          // begin new process to exec cmd arg1 arg2 ...
           pid2 = fork();
           if(pid2 == 0) { // execl process
-            /* printf("-a1shell: execl: attempting to run command '%s'\n", cmd_with_args); */
             execl("/bin/bash", "bash", "-c", cmd_with_args, (char*) 0);
             // execl only returns on failure
-            perror("-a1shell: execl: failed");
+            perror("-execl: failed");
           }
           else { // a1shell process
-            sleep(1);
             waitpid(pid2);
-            printf("a1shell: execl process terminated?\n");
+
+            // end clock
+            end_time = times(&end_buf);
+
+            printf("-a1shell: execl process terminated?\n");
+
+            /* printf("-a1shell: end time: %jd\n", end_time); */
+            /* printf("-a1shell: user time: %jd\n", end_buf.tms_utime); */
+            /* printf("-a1shell: cpu time: %jd\n", end_buf.tms_stime); */
+            /* printf("-a1shell: child user time: %jd\n", end_buf.tms_cutime); */
+            /* printf("-a1shell: child cpu time time: %jd\n", end_buf.tms_cstime); */
+
+            printf("-a1shell: total user time: %jd\n", end_buf.tms_utime - st_buf.tms_utime);
+            printf("-a1shell: total cpu time: %jd\n", end_buf.tms_stime - st_buf.tms_stime);
+            printf("-a1shell: total user time: %jd\n", end_buf.tms_cutime - st_buf.tms_cutime);
+            printf("-a1shell: total child cpu  time: %jd\n", end_buf.tms_cstime - st_buf.tms_cstime);
+            printf("-a1shell: total total real time: %jd\n", end_time - start_time);
           }
         }
       } //while
