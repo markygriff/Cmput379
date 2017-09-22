@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+/* #include <sys/wait.h> */
 #include <sys/time.h>
 #include <sys/times.h>
 #include <sys/resource.h>
@@ -55,8 +56,8 @@ int main(int argc, char* argv[]) {
         // b) Average system loads
         // c) Number of running processes and total number of processes
         FILE* loadavg;
-        float one, fifteen, five;
-        char procs[5];
+        static float one, fifteen, five;
+        static char procs[5];
 
         loadavg = fopen("/proc/loadavg", "r");
         fscanf(loadavg, "%f %f %f %s", &one, &five, &fifteen, procs);
@@ -71,7 +72,7 @@ int main(int argc, char* argv[]) {
         // check if parent has terminated
         pid_t done = waitpid(ppid, &status, 0);
         if(done == ppid) {
-          printf("\n-a1monitor: parent terminated?\n");
+          printf("\n-a1monitor: parent(a1shell) terminated?\n");
           break;
         }
         else {
@@ -83,8 +84,8 @@ int main(int argc, char* argv[]) {
     else { // a1shell process
       // allow time for a1monitor to print to stdout
       sleep(1);
-      int i = 0;
-      char cmd[1024];
+      static char cmd[1024];
+      cmd[0] = '\0';
 
       while(1) {
         // shell prompt for the user
@@ -92,12 +93,59 @@ int main(int argc, char* argv[]) {
         scanf("%s", cmd);
 
         if(strcmp(cmd, "cd") == 0) {
-          char path[1024];
+          static char path[1024];
+          path[0] = '\0';
+
           scanf("%s", path);
-          if (chdir(path) != 0) {
-            printf("-a1shell: cd: %s: No such directory\n", path);
+          if(path[0] == '$') {
+            char* complete_path = NULL;
+            static char env_var[1024];
+            env_var[0] = '\0';
+            int i = 0;
+
+            // remove '$' from the path string
+            memmove(path, path+1, strlen(path));
+
+            while(i < strlen(path)) {
+              // check for end of $VAR in path string
+              if(path[i] == '/')
+                break;
+              i++;
+            }
+
+            /* printf("-a1shell: about to copy path = '%s' from 0 to %d into\ */
+              /* env_var = '%s'\n", path, i, env_var); */
+
+            // copy $VAR into buffer
+            strncpy(env_var, path, i);
+            env_var[i] = '\0';
+            /* printf("-a1shell: copied buffer: %s\n", env_var); */
+            // remove $VAR from path string
+            memmove(path, path+i, strlen(path));
+            /* printf("-a1shell: new path: %s\n", path); */
+            // expand env var
+            complete_path = getenv(env_var);
+            /* printf("-a1shell: $VAR: %s\n", complete_path); */
+
+            if(complete_path == NULL) {
+              printf("-a1shell: cd: $%s: no such directory\n", env_var);
+              continue;
+            }
+            else {
+              // get the full path with expanded env var
+              strcat(complete_path, path);
+              /* printf("a1shell: complete_path: %s\n", complete_path); */
+              if (chdir(complete_path) != 0)
+                printf("-a1shell: cd: %s: No such directory\n", path);
+            }
+            complete_path = NULL;
+            env_var[0] = '\0';
           }
+          // attempt to change directory
+          else if (chdir(path) != 0)
+            printf("-a1shell: cd: %s: No such directory\n", path);
         }
+
         else if(strcmp(cmd, "pwd") == 0) {
           char pwd[1024];
           if(getcwd(pwd, sizeof(pwd)) != NULL) {
@@ -158,7 +206,6 @@ int main(int argc, char* argv[]) {
 
             // end clock
             end_time = times(&end_buf);
-
             printf("-a1shell: execl process terminated?\n");
 
             /* printf("-a1shell: end time: %jd\n", end_time); */
@@ -167,11 +214,19 @@ int main(int argc, char* argv[]) {
             /* printf("-a1shell: child user time: %jd\n", end_buf.tms_cutime); */
             /* printf("-a1shell: child cpu time time: %jd\n", end_buf.tms_cstime); */
 
-            printf("-a1shell: total user time: %jd\n", end_buf.tms_utime - st_buf.tms_utime);
-            printf("-a1shell: total cpu time: %jd\n", end_buf.tms_stime - st_buf.tms_stime);
-            printf("-a1shell: total user time: %jd\n", end_buf.tms_cutime - st_buf.tms_cutime);
-            printf("-a1shell: total child cpu  time: %jd\n", end_buf.tms_cstime - st_buf.tms_cstime);
-            printf("-a1shell: total total real time: %jd\n", end_time - start_time);
+            printf("-a1shell: total user time: %jd\n",\
+                end_buf.tms_utime - st_buf.tms_utime);
+            printf("-a1shell: total cpu time: %jd\n",\
+                end_buf.tms_stime - st_buf.tms_stime);
+            printf("-a1shell: total user time: %jd\n",\
+                end_buf.tms_cutime - st_buf.tms_cutime);
+            printf("-a1shell: total child cpu  time: %jd\n",\
+                end_buf.tms_cstime - st_buf.tms_cstime);
+            printf("-a1shell: total total real time: %jd\n",\
+                end_time - start_time);
+
+            //temp
+            continue;
           }
         }
       } //while
