@@ -118,10 +118,12 @@ int main(int argc, char* argv[]) {
 
             // copy $VAR into buffer
             strncpy(env_var, path, i);
-            env_var[i] = '\0';
+            env_var[i] = '\0'; // strncpy does not \0 terminate
             /* printf("-a1shell: copied buffer: %s\n", env_var); */
+
             // remove $VAR from path string
             memmove(path, path+i, strlen(path));
+
             /* printf("-a1shell: new path: %s\n", path); */
             // expand env var
             complete_path = getenv(env_var);
@@ -214,16 +216,19 @@ int main(int argc, char* argv[]) {
             /* printf("-a1shell: child user time: %jd\n", end_buf.tms_cutime); */
             /* printf("-a1shell: child cpu time time: %jd\n", end_buf.tms_cstime); */
 
-            printf("-a1shell: total user time: %jd\n",\
-                end_buf.tms_utime - st_buf.tms_utime);
-            printf("-a1shell: total cpu time: %jd\n",\
-                end_buf.tms_stime - st_buf.tms_stime);
-            printf("-a1shell: total user time: %jd\n",\
-                end_buf.tms_cutime - st_buf.tms_cutime);
-            printf("-a1shell: total child cpu  time: %jd\n",\
-                end_buf.tms_cstime - st_buf.tms_cstime);
-            printf("-a1shell: total total real time: %jd\n",\
+
+            printf("\n-a1shell: >>>>>>>>>>>>>>>>\n");
+            printf("total real time: %jd\n",\
                 end_time - start_time);
+            printf("total user time: %jd\n",\
+                end_buf.tms_utime - st_buf.tms_utime);
+            printf("total cpu time: %jd\n",\
+                end_buf.tms_stime - st_buf.tms_stime);
+            printf("execl: total user time: %jd\n",\
+                end_buf.tms_cutime - st_buf.tms_cutime);
+            printf("execl: total cpu  time: %jd\n",\
+                end_buf.tms_cstime - st_buf.tms_cstime);
+            printf("<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n\n");
 
             //temp
             continue;
