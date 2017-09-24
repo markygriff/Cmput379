@@ -44,10 +44,9 @@ int main(int argc, char* argv[]) {
       static float one, fifteen, five;
       static char procs[5];
       pid_t ppid = getppid(); // a1shell pid
-      pid_t done;
-      printf("child: parent pid is %d\n", ppid);
+      pid_t ppid_curr = ppid;
 
-      while(1) {
+      while(ppid_curr == ppid) {
         // displays the time and date, load average, and number of running
         // processes on stdout
         loadavg = fopen("/proc/loadavg", "r");
@@ -60,25 +59,14 @@ int main(int argc, char* argv[]) {
         sleep(interval);
 
         // check if parent has terminated
-        _Exit(EXIT_SUCCESS);
-        done = waitpid(ppid, &status, 0);
-        printf("-a1monitor: done: %d    status: %d\n", done, status);
-        if(done == ppid) {
-          printf("\n-a1monitor: parent(a1shell) terminated?\n");
-          _Exit(EXIT_SUCCESS);
-        }
-        if(done == -1)
-          printf("\n-a1monitor: waitpid error\n");
+        ppid_curr = getppid(); // 1 if parent is terminated
+        /* if(ppid_curr != ppid) */
+        /*   _Exit(EXIT_SUCCESS); */
+
       } // while
       _Exit(EXIT_SUCCESS);
     } // a1monitor
-
     else { // a1shell process
-
-      wait(&status);
-      printf("YELLOW\n");
-      _exit(EXIT_SUCCESS);
-
       // allow time for a1monitor to print to stdout
       sleep(1);
       static char cmd[1024];
@@ -162,8 +150,25 @@ int main(int argc, char* argv[]) {
           printf("-a1shell: rwx general (S_IRWXO): %04o\n", S_IRWXO);
         }
         else if(strcmp(cmd, "done") == 0) {
-          printf("exiting a1shell...\n");
-          break;
+          /* printf("-a1shell: waiting for a1monitor to terminate...\n"); */
+          /* wait(&status); */
+
+          /* printf("-a1shell: exiting...\n"); */
+          /* pid = waitpid(pid, &status, WNOHANG); */
+          /* while(pid == 0) { */
+          /*   pid = waitpid(pid, &status, WNOHANG); */
+          /*   if(pid == -1) { */
+          /*     perror("-a1shell: waitpid on a1monitor failed"); */
+          /*     _exit(EXIT_FAILURE); */
+          /*   } */
+          /*   else if(pid == 0) // a1monitor is still running */
+          /*   { */
+          /*     printf("-a1shell: still waiting for a1monitor to terminate...\n"); */
+          /*     sleep(1); */
+          /*   } */
+          /* } */
+          /* printf("-a1shell: a1monitor process terminated?"); */
+          _exit(EXIT_SUCCESS);
         }
         else { // attempt to execute command using /bin/bash
           char args[1024];
@@ -237,25 +242,6 @@ int main(int argc, char* argv[]) {
         }
       } //while
 
-      printf("-a1shell: waiting for a1monitor to terminate...\n");
-      wait(&status);
-      printf("-a1shell: exiting...\n");
-      _exit(EXIT_SUCCESS);
-      pid = waitpid(pid, &status, WNOHANG);
-      while(pid == 0) {
-        pid = waitpid(pid, &status, WNOHANG);
-        if(pid == -1) {
-          perror("-a1shell: waitpid on a1monitor failed");
-          _exit(EXIT_FAILURE);
-        }
-        else if(pid == 0) // a1monitor is still running
-        {
-          printf("-a1shell: still waiting for a1monitor to terminate...\n");
-          sleep(1);
-        }
-      }
-      printf("-a1shell: a1monitor process terminated?");
-      _exit(EXIT_SUCCESS);
 
       /* // wait for child to terminate */
       /* if(pid == wait(&status)) { */
