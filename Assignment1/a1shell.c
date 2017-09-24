@@ -20,11 +20,11 @@ void usage() {
 
 int main(int argc, char* argv[]) {
   // user must provide interval. No default.
-  if (argc == 1) {
+  if (argc != 2) {
     usage();
     return 1;
   }
-  else if(argc > 1) {
+  else {
     int interval = atoi(argv[1]);
     struct rlimit cpu_lim = {600, 600}; // cpu time limit in seconds
 
@@ -32,7 +32,7 @@ int main(int argc, char* argv[]) {
     if(setrlimit(RLIMIT_CPU, &cpu_lim) == -1) {
       perror("setrlimit: failed");
       return 1;
-    }
+     }
 
     // fork a child process (a1monitor)
     int status;
@@ -58,10 +58,7 @@ int main(int argc, char* argv[]) {
         printf("<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n\n");
         sleep(interval);
 
-        // check if parent has terminated
         ppid_curr = getppid(); // 1 if parent is terminated
-        /* if(ppid_curr != ppid) */
-        /*   _Exit(EXIT_SUCCESS); */
 
       } // while
       _Exit(EXIT_SUCCESS);
@@ -97,9 +94,6 @@ int main(int argc, char* argv[]) {
                 break;
               i++;
             }
-
-            /* printf("-a1shell: about to copy path = '%s' from 0 to %d into\ */
-              /* env_var = '%s'\n", path, i, env_var); */
 
             // copy $VAR into buffer
             strncpy(env_var, path, i);
@@ -188,12 +182,6 @@ int main(int argc, char* argv[]) {
           // start clock
           start_time = times(&st_buf);
 
-          /* printf("-a1shell: start time: %jd\n", start_time); */
-          /* printf("-a1shell: user time: %jd\n", st_buf.tms_utime); */
-          /* printf("-a1shell: cpu time: %jd\n", st_buf.tms_stime); */
-          /* printf("-a1shell: child user time: %jd\n", st_buf.tms_cutime); */
-          /* printf("-a1shell: child cpu time time: %jd\n", st_buf.tms_cstime); */
-
           // begin new process to exec cmd arg1 arg2 ...
           pid2 = fork();
           if(pid2 == 0) { // execl process
@@ -213,18 +201,12 @@ int main(int argc, char* argv[]) {
               else if(pid2 == 0) // child is still running
                 sleep(1);
             }
-            printf("-a1shell: execl process terminated?");
+            /* printf("-a1shell: execl process terminated?"); */
 
             // record user and CPU times for the current process
             // NOTE: we are assuming the time taken for the process is
             //       within the range of an int type
             end_time = times(&end_buf);
-
-            /* printf("-a1shell: end time: %jd\n", end_time); */
-            /* printf("-a1shell: user time: %jd\n", end_buf.tms_utime); */
-            /* printf("-a1shell: cpu time: %jd\n", end_buf.tms_stime); */
-            /* printf("-a1shell: child user time: %jd\n", end_buf.tms_cutime); */
-            /* printf("-a1shell: child cpu time time: %jd\n", end_buf.tms_cstime); */
 
             printf("\n-a1shell: >>>>>>>>>>>>>>>>\n");
             printf("total real time: %jd\n",\
@@ -241,18 +223,6 @@ int main(int argc, char* argv[]) {
           }
         }
       } //while
-
-
-      /* // wait for child to terminate */
-      /* if(pid == wait(&status)) { */
-      /*   printf("-a1shell: a1monitor process terminated?\n"); */
-      /*   _exit(EXIT_SUCCESS); */
-      /* } */
-      /* else { */
-      /*   printf("-a1shell: wait error\n"); */
-      /*   _exit(EXIT_FAILURE); */
-      /* } */
-
-    } // a1shell
-  } // if(argc > 1)
+    } // a1shell process
+  }
 }
