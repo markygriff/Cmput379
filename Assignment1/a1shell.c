@@ -56,29 +56,32 @@ int main(int argc, char* argv[]) {
         system("date");
         printf("Load average:  %.2f %.2f %.2f\nProcesses:  %s\n", one, five, fifteen, procs);
         printf("<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n\n");
+        
+        // sleep for interval specified by user input
         sleep(interval);
-
         ppid_curr = getppid(); // 1 if parent is terminated
-
-      } // while
+      }
       _Exit(EXIT_SUCCESS);
     } // a1monitor
     else { // a1shell process
-      // allow time for a1monitor to print to stdout
-      sleep(1);
       static char cmd[1024];
       cmd[0] = '\0';
+
+      // allow time for a1monitor to print to stdout
+      sleep(1);
 
       while(1) {
         // shell prompt for the user
         printf("a1shell%% ");
         scanf("%s", cmd);
-
+        
+        /// Change directory functionality
         if(strcmp(cmd, "cd") == 0) {
           static char path[1024];
           path[0] = '\0';
 
           scanf("%s", path);
+          // check if the path begins with an environment var
           if(path[0] == '$') {
             char* complete_path = NULL;
             static char env_var[1024];
@@ -87,48 +90,39 @@ int main(int argc, char* argv[]) {
 
             // remove '$' from the path string
             memmove(path, path+1, strlen(path));
-
+            // check for end of $VAR in path string
             while(i < strlen(path)) {
-              // check for end of $VAR in path string
               if(path[i] == '/')
                 break;
               i++;
             }
-
             // copy $VAR into buffer
             strncpy(env_var, path, i);
             env_var[i] = '\0'; // strncpy does not \0 terminate
-            /* printf("-a1shell: copied buffer: %s\n", env_var); */
-
             // remove $VAR from path string
             memmove(path, path+i, strlen(path));
-
-            /* printf("-a1shell: new path: %s\n", path); */
-            // expand env var
+            // expand environment var and check if it exists
             complete_path = getenv(env_var);
-            /* printf("-a1shell: $VAR: %s\n", complete_path); */
-
             if(complete_path == NULL) {
-              printf("-a1shell: cd: $%s: no such directory\n", env_var);
+              printf("-a1shell: cd: $%s: no such directory\n");
               continue;
             }
+            // get the full path with the expanded environment var
             else {
-              // get the full path with expanded env var
               strcat(complete_path, path);
-              /* printf("a1shell: complete_path: %s\n", complete_path); */
               if (chdir(complete_path) != 0)
                 printf("-a1shell: cd: %s: No such directory\n", path);
             }
             complete_path = NULL;
             env_var[0] = '\0';
           }
-          // attempt to change directory
           else if (chdir(path) != 0)
             printf("-a1shell: cd: %s: No such directory\n", path);
         }
-
+        /// Print Working Directory functionality
         else if(strcmp(cmd, "pwd") == 0) {
           char pwd[1024];
+
           if(getcwd(pwd, sizeof(pwd)) != NULL) {
             printf("%s\n", pwd);
           }
@@ -143,8 +137,8 @@ int main(int argc, char* argv[]) {
           printf("-a1shell: rwx group (S_IRWXG): %04o\n", S_IRWXG);
           printf("-a1shell: rwx general (S_IRWXO): %04o\n", S_IRWXO);
         }
+        /// Exit a1shell functionality
         else if(strcmp(cmd, "done") == 0) {
-          /* printf("-a1shell: waiting for a1monitor to terminate...\n"); */
           /* wait(&status); */
 
           /* printf("-a1shell: exiting...\n"); */
@@ -164,7 +158,8 @@ int main(int argc, char* argv[]) {
           /* printf("-a1shell: a1monitor process terminated?"); */
           _exit(EXIT_SUCCESS);
         }
-        else { // attempt to execute command using /bin/bash
+        /// Bash Command Execution functionality
+        else { 
           char args[1024];
           char cmd_with_args[1024];
           static struct tms st_buf;
@@ -176,8 +171,6 @@ int main(int argc, char* argv[]) {
           fgets(args, sizeof(args), stdin);
           strcpy(cmd_with_args, cmd);
           strcat(cmd_with_args, args);
-          /* printf("-a1shell: args: %s\n", args); */
-          /* printf("-a1shell: cmd with args: %s\n", cmd_with_args); */
 
           // start clock
           start_time = times(&st_buf);
@@ -201,7 +194,6 @@ int main(int argc, char* argv[]) {
               else if(pid2 == 0) // child is still running
                 sleep(1);
             }
-            /* printf("-a1shell: execl process terminated?"); */
 
             // record user and CPU times for the current process
             // NOTE: we are assuming the time taken for the process is
