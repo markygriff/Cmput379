@@ -9,10 +9,10 @@ all: a1shell
 tar: submit
 
 a1shell:
-	@$(CC) $(TARGET).c $(CFLAGS) -o $(TARGET).o
+	@$(CC) $(TARGET).c $(CFLAGS) -o $(TARGET)
 
 submit:
 	@mkdir submit && cp $(TARGET).c submit && cp Makefile submit && tar -cf submit.tar submit && rm -rf submit
 
 clean:
-	@rm -rf *.o && rm -rf submit*
+	@rm -rf a1shell && rm -rf submit*
