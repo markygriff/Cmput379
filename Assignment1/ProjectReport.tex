@@ -1,0 +1,67 @@
+\documentclass{article}
+\usepackage{graphicx}
+\usepackage{bm}
+
+\begin{document}
+
+\title{COMP 372 Assignment 1}
+\author{Mark Griffith}
+
+\maketitle
+
+\section{Objectives}
+This project was an oppurtunity for myself to practice UNIX process managment function calls
+in order to implement a simple and functional UNIX shell.
+
+\section{Design Overview}
+The design of my a1shell implementation is rather simple. Before the a1shell process begins
+parsing commands from the stdin, it forks a child process (called a1monitor).
+These two processes have the following design.
+\begin{enumerate}
+   \item a1shell
+   \begin{itemize}
+     \item this is the parent process of the main program
+     \item scans for user input from stdout
+     \item determines what the user command is via if else statements
+     \item \textbf{cd}: uses chdir() system call to change user directory
+     \item \textbf{pwd}: prints working directory to stdout with getpwd
+     \item \textbf{umask}: prints current mask as well as S_IRWXG, S_IRWXO, and S_IRWXU
+     \item \textbf{done}: terminates the a1shell process via the _exit() system call \\
+     Note: as per the specifications in the assignment outline, I have designed the a1shell
+     process to terminate without waiting on its child process. The child process (a1monitor) has
+     been designed to terminate once its parent (a1shell) has terminated (see a1monitor design
+     below).
+     \item \textbf{cmd arg1 arg2 ...}: forks one child process which uses execl() to execute
+     "/bin/bash cmd arg1 arg2 ...". The parent process waits for the child to terminate and
+     prints the command execution time of the parent and child processes to stdout.
+   \end{itemize}
+   \item a1monitor
+   \begin{itemize}
+     \item this is the child process of the main program
+     \item is in a while loop as long as its parent pid is the pid of a1shell
+     \item the process prints the current time and date, followed by the information found
+     in /sys/loadavg to stdout
+     \item the process is designed to terminate AFTER its parent process terminates.
+   \end{itemize}
+\end{enumerate}
+
+\section{Project Status}
+
+\section{Testing and Results}
+
+\section{Acknowledgments}
+https://linux.die.net
+
+\end{document}
+
+
+
+
+
+
+
+
+
+
+
+
