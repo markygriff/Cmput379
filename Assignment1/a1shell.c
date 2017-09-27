@@ -45,7 +45,7 @@ int main(int argc, char* argv[]) {
       static char procs[5];
       pid_t ppid = getppid(); // a1shell pid
       pid_t ppid_curr = ppid;
-      // Note the condition on this 'while' is that the a1monitor's ppid changes.
+      // NOTE: the condition on this 'while' is that the a1monitor's ppid changes.
       // This is because the a1monitor process is to terminate after it's parent
       // process (a1shell) has terminated, therefore making it an orphan with ppid=1
       while(ppid_curr == ppid) {
@@ -58,9 +58,12 @@ int main(int argc, char* argv[]) {
         system("date");
         printf("Load average:  %.2f %.2f %.2f\nProcesses:  %s\n", one, five, fifteen, procs);
         printf("<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n\n");
+        // better to check if parent is terminated before sleeping to avoid
+        // hanging the process
+        ppid_curr = getppid(); // 1 if parent is terminated
+        if(ppid_curr != ppid) break;
         // sleep for interval specified by user input and chek ppid
         sleep(interval);
-        ppid_curr = getppid(); // 1 if parent is terminated
       }
       // exit a1monitor process successfully
       _Exit(EXIT_SUCCESS);
@@ -82,8 +85,9 @@ int main(int argc, char* argv[]) {
           scanf("%s", path);
           // check if the path begins with an environment var
           if(path[0] == '$') {
-            char* complete_path = NULL;
+            char* env_var_p; // pointer to environment_variable
             static char env_var[1024];
+            static char expanded_path[1024];
             env_var[0] = '\0';
             int i = 0;
             // remove '$' from the path string
@@ -100,17 +104,18 @@ int main(int argc, char* argv[]) {
             // remove $VAR from path string
             memmove(path, path+i, strlen(path));
             // expand environment var and check if it exists
-            complete_path = getenv(env_var);
-            if(complete_path == NULL) {
+            // NOTE: getenv returns a pointer to a list of defined environment vars
+            //       so DO NOT MODIFY env_var_p
+            env_var_p = getenv(env_var);
+            if(env_var_p == NULL)
               printf("-a1shell: cd: $%s: no such directory\n", env_var);
-            }
             else {
-              // get the full path with the expanded environment var
-              strcat(complete_path, path);
-              if (chdir(complete_path) != 0)
-                printf("-a1shell: cd: %s: No such directory\n", path);
+              // expand the full path
+              strcpy(expanded_path, env_var_p);
+              strcat(expanded_path, path);
+              if (chdir(expanded_path) != 0)
+                printf("-a1shell: cd: %s: No such directory\n", expanded_path);
             }
-            complete_path = NULL;
             env_var[0] = '\0';
           }
           // if path does not start with environment var, change into it
@@ -122,7 +127,7 @@ int main(int argc, char* argv[]) {
           char pwd[1024];
           if(getcwd(pwd, sizeof(pwd)) != NULL)
             printf("%s\n", pwd);
-          else 
+          else
             perror("-a1shell: getcwd: failed\n");
         }
         /// Umask functionality
@@ -154,7 +159,7 @@ int main(int argc, char* argv[]) {
           _exit(EXIT_SUCCESS);
         }
         /// Bash Command Execution functionality
-        else { 
+        else {
           char args[1024];
           char cmd_with_args[1024];
           static struct tms st_buf;
@@ -170,7 +175,7 @@ int main(int argc, char* argv[]) {
           // begin new process to exec cmd arg1 arg2 ...
           pid2 = fork();
           if(pid2 == 0) { // execl process
-            execl("/bin/bash", "bash", "-c", cmd_with_args, (char*) 0); 
+            execl("/bin/bash", "bash", "-c", cmd_with_args, (char*) 0);
             // execl only returns on failure
             perror("-execl: failed");
             _exit(EXIT_FAILURE);
