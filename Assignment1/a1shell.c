@@ -182,27 +182,28 @@ int main(int argc, char* argv[]) {
       // This is because the a1monitor process is to terminate after it's parent
       // process (a1shell) has terminated, therefore making it an orphan with ppid=1
       while(ppid_curr == ppid) {
-        // better to check if parent is terminated before sleeping to avoid
-        // hanging the process
-        ppid_curr = getppid(); // 1 if parent is terminated
-        if(ppid_curr != ppid) _Exit(EXIT_SUCCESS);
+        // better to check if parent is terminated before printing output and 
+        // sleeping to avoid hanging the process
+        ppid_curr = getppid();
+        if(ppid_curr != ppid) 
+          _Exit(EXIT_SUCCESS);
         // displays the time and date, load average, and number of running
         // processes on stdout
-        loadavg = fopen("/proc/loadavg", "r");
+        if((loadavg = fopen("/proc/loadavg", "r")) == NULL)
+          perror("-a1monitor: popen failed\nError ");
         fscanf(loadavg, "%f %f %f %s", &one, &five, &fifteen, procs);
         fclose(loadavg);
         printf("\n-a1monitor: >>>>>>>>>>>>>>>>\n");
         system("date");
         printf("Load average:  %.2f %.2f %.2f\nProcesses:  %s\n", one, five, fifteen, procs);
         printf("<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n\n");
-        // sleep for interval specified by user input and chek ppid
+        // sleep for interval number of seconds specified by user input 
         sleep(interval);
       }
       // exit a1monitor process successfully
       _Exit(EXIT_SUCCESS);
     } // a1monitor
-
-    else { // a1shell process
+    else if(pid > 0) { // a1shell process
       static char cmd[1024];
       cmd[0] = '\0';
       // allow time for a1monitor to print to stdout
@@ -216,5 +217,9 @@ int main(int argc, char* argv[]) {
         parse(cmd);
       } // while
     } // a1shell process
+    else {
+      printf("Error: fork failed\n");
+      return -1;
+    }
   }
 }
