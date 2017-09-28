@@ -59,7 +59,7 @@ int execute_bash(char* cmd) {
     execl("/bin/bash", "bash", "-c", cmd_with_args, (char*) 0);
     // execl only returns on failure
     perror("-execl: failed");
-    _exit(EXIT_FAILURE);
+    return -1;
   }
   else { // a1shell process
     // wait for execl (child process) to terminate
@@ -153,7 +153,8 @@ void parse(char* cmd) {
   else if(strcmp(cmd, "done") == 0)
     _exit(EXIT_SUCCESS);
   else
-    execute_bash(cmd);
+    if (execute_bash(cmd) == -1)
+      _exit(EXIT_FAILURE);
 }
 
 int main(int argc, char* argv[]) {
