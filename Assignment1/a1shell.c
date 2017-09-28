@@ -46,6 +46,7 @@ int execute_bash(char* cmd) {
   static struct tms end_buf;
   static clock_t start_time;
   static clock_t end_time;
+  double clktck = sysconf(_SC_CLK_TCK);
   int status;
   pid_t pid2;
   fgets(args, sizeof(args), stdin);
@@ -55,7 +56,7 @@ int execute_bash(char* cmd) {
   start_time = times(&st_buf);
   // begin new process to exec cmd arg1 arg2 ...
   pid2 = fork();
-  if(pid2 == 0) { // execl process
+  if(pid2 == 0) {
     execl("/bin/bash", "bash", "-c", cmd_with_args, (char*) 0);
     // execl only returns on failure
     perror("-execl: failed");
@@ -74,18 +75,18 @@ int execute_bash(char* cmd) {
     //       within the range of an int type
     end_time = times(&end_buf);
     printf("\n-a1shell: >>>>>>>>>>>>>>>>>>\n");
-    printf("total real time: %jd\n",\
-        end_time - start_time);
+    printf("total real time: %lf\n",\
+        (end_time - start_time)/clktck);
     // print parent (a1shell) times
-    printf("total user time: %jd\n",\
-        end_buf.tms_utime - st_buf.tms_utime);
-    printf("total cpu time: %jd\n",\
-        end_buf.tms_stime - st_buf.tms_stime);
+    printf("a1shell: total user time: %lf\n",\
+        (end_buf.tms_utime - st_buf.tms_utime)/clktck);
+    printf("a1shell: total cpu time: %lf\n",\
+        (end_buf.tms_stime - st_buf.tms_stime)/clktck);
     // print child (execl) times
-    printf("execl: total user time: %jd\n",\
-        end_buf.tms_cutime - st_buf.tms_cutime);
-    printf("execl: total cpu time: %jd\n",\
-        end_buf.tms_cstime - st_buf.tms_cstime);
+    printf("execl: total user time: %lf\n",\
+        (end_buf.tms_cutime - st_buf.tms_cutime)/clktck);
+    printf("execl: total cpu time: %lf\n",\
+        (end_buf.tms_cstime - st_buf.tms_cstime)/clktck);
     printf("<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n\n");
   }
   return 0;
