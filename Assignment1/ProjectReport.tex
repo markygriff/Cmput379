@@ -17,17 +17,21 @@ in order to implement a simple and functional UNIX shell.
 \section{Design Overview}
 \textbf{Program File:} a1shell.c \\
 \textbf{Executable:} a1shell \\
+\textbf{Function Returns:} 0 on success. -1 on failure. \\
 
 \noindent
-The design of my a1shell program is rather simple, with only two functions main() and usage(). \\
+In order to make my program more modular, I have created functions
+for the seperate functionalities of the a1shell process as well as
+a parser for these functions. \\
 
 \noindent
 \textbf{usage()}: Prints the proper syntax for calling the a1shell executable. \\
 
 \noindent
-\textbf{main()}: Holds the shell and process monitoring functionalities of the program.
-First, it limits the CPU time of the program to avoid a hanging process.
-Next, a fork() issues a child process (called a1monitor). The parent process is the shell (called a1shell). \\
+\textbf{main()}: First, it limits the CPU time of the program to avoid a hanging
+process.
+Next, a fork() issues a child process (called a1monitor). The parent process is the
+shell (called a1shell). \\
 
 \noindent
 These two processes have the following design.
@@ -35,24 +39,25 @@ These two processes have the following design.
    \item a1shell: this is the parent process of the main program
    \begin{itemize}
      \item scans for user input from stdout
-     \item determines what the user command is via if else statements.
-       supported commands include...\\
+     \item determines what the user command is via string comparisons
+       and passes it to the parse function. Supported commands include...\\
 
      \textbf{cd}: uses chdir() system call to change user directory \\
      \textbf{pwd}: prints working directory to stdout with getpwd\\
      \textbf{umask}: prints current mask as well as S\_IRWXG, S\_IRWXO, and S\_IRWXU\\
      \textbf{done}: terminates the a1shell process via the \_exit() system call \\
+     \textbf{cmd arg1 arg2 ...} : forks one child process which uses execl() to execute
+     "/bin/bash cmd arg1 arg2 ...". The parent process waits for the child to terminate and
+     prints the command execution time of the parent and child processes to stdout. \\
+   \end{itemize}
+
      Note: as per the specifications in the assignment outline, I have designed the a1shell
      process to terminate without waiting on its child process. The child process (a1monitor) has
      been designed to terminate once its parent (a1shell) has terminated (see a1monitor design
      below). \\
-     \textbf{cmd arg1 arg2 ...} : forks one child process which uses execl() to execute
-     "/bin/bash cmd arg1 arg2 ...". The parent process waits for the child to terminate and
-     prints the command execution time of the parent and child processes to stdout.
-   \end{itemize}
    \item a1monitor
    \begin{itemize}
-     \item this is the child process of the main program
+     \item this is the child process of the a1shell process
      \item is in a while loop as long as its parent pid is the pid of a1shell
      \item the process prints the current time and date, followed by the information found
      in /sys/loadavg to stdout
