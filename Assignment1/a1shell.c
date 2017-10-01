@@ -35,7 +35,7 @@ void print_mask() {
   printf("-a1shell: current mask: %04o\n", mask);
   printf("-a1shell: rwx user (S_IRWXU): %04o\n", S_IRWXU);
   printf("-a1shell: rwx group (S_IRWXG): %04o\n", S_IRWXG);
-  printf("-a1shell: rwx general (S_IRWXO): %04o\n", S_IRWXO);
+  printf("-a1shell: rwx general (S_IRWXO): %04o\n\n", S_IRWXO);
 }
 
 /// Bash Command Execution functionality
@@ -164,10 +164,10 @@ int main(int argc, char* argv[]) {
     return usage();
   else {
     int interval = atoi(argv[1]);
-    struct rlimit cpu_lim = {600, 600}; // cpu time limit in seconds
     // set a limit on CPU time (e.g. 10 minutes)
+    struct rlimit cpu_lim = {600, 600};
     if(setrlimit(RLIMIT_CPU, &cpu_lim) == -1) {
-      perror("setrlimit: failed");
+      perror("setrlimit: failed\nError ");
       return -1;
      }
     // fork a child process (a1monitor)
@@ -183,10 +183,10 @@ int main(int argc, char* argv[]) {
       // This is because the a1monitor process is to terminate after it's parent
       // process (a1shell) has terminated, therefore making it an orphan with ppid=1
       while(ppid_curr == ppid) {
-        // better to check if parent is terminated before printing output and 
+        // better to check if parent is terminated before printing output and
         // sleeping to avoid hanging the process
         ppid_curr = getppid();
-        if(ppid_curr != ppid) 
+        if(ppid_curr != ppid)
           _Exit(EXIT_SUCCESS);
         // displays the time and date, load average, and number of running
         // processes on stdout
@@ -198,7 +198,7 @@ int main(int argc, char* argv[]) {
         system("date");
         printf("Load average:  %.2f %.2f %.2f\nProcesses:  %s\n", one, five, fifteen, procs);
         printf("<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n\n");
-        // sleep for interval number of seconds specified by user input 
+        // sleep for interval number of seconds specified by user input
         sleep(interval);
       }
       // exit a1monitor process successfully
