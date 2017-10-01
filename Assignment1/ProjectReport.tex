@@ -5,7 +5,7 @@
 \begin{document}
 
 \title{COMP 379 Assignment 1}
-\author{Mark Griffith}
+\author{Mark Griffith - 1422270}
 
 \maketitle
 
@@ -17,14 +17,15 @@ in order to implement a simple and functional UNIX shell.
 \section{Design Overview}
 \textbf{Program File:} a1shell.c \\
 \textbf{Executable:} a1shell \\
-\textbf{Function Returns:} 0 on success. -1 on failure. \\
+\textbf{Function Returns:} 0 on success and -1 on failure. \\
+\textbf{Makefile Options}: make $|$ make clean $|$ make tar \\
 
 \noindent
 In order to make my program more modular, I have created functions
 for the seperate functionalities of the a1shell process as well as
 a parser for these functions. These functions include... \\
-\textbf{parse}, \textbf{change_dir}, \textbf{print_dir}, \textbf{print_mask}, 
-and \textbf{execute_bash}.
+\textbf{parse}, \textbf{change\_dir}, \textbf{print\_dir}, \textbf{print\_mask},
+and \textbf{execute\_bash}. \\
 
 \noindent
 \textbf{usage()}: Prints the proper syntax for calling the a1shell executable. \\
@@ -41,7 +42,7 @@ are created. This is purely a style choice and functions the same as \_exit(). \
 \noindent
 The two processes created in main() have the following design.
 \begin{enumerate}
-   \item a1shell: this is the parent process of the main program
+  \item \textbf{a1shell}: this is the parent process of the main program
    \begin{itemize}
      \item scans for user input from stdout
      \item determines what the user command is via string comparisons
@@ -52,11 +53,18 @@ The two processes created in main() have the following design.
      \textbf{umask}: prints current mask as well as S\_IRWXG, S\_IRWXO, and S\_IRWXU\\
      \textbf{done}: terminates the a1shell process via the \_exit() system call \\
      \textbf{cmd arg1 arg2 ...} : forks one child process which uses execl() to execute
-     "/bin/bash cmd arg1 arg2 ...". The parent process waits for the child to terminate 
-     and prints the command execution time of the parent and child processes to 
+     "/bin/bash cmd arg1 arg2 ...". The parent process waits for the child to terminate
+     and prints the command execution time of the parent and child processes to
      stdout. \\
 
-     \item Exits successfully with \_exit(EXIT\_SUCCESSFUL) and exits unsuccessfully 
+    \noindent
+    In order to make my program more modular, I have created functions
+    for the seperate functionalities of the a1shell process as well as
+    a parser for these functions. These functions include... \\
+    \textbf{parse}, \textbf{change\_dir}, \textbf{print\_dir}, \textbf{print\_mask},
+    and \textbf{execute\_bash}. \\
+
+     \item Exits successfully with \_exit(EXIT\_SUCCESSFUL) and exits unsuccessfully
      with \_exit(EXIT\_UNSECCESSFULL)
    \end{itemize}
 
@@ -64,35 +72,41 @@ The two processes created in main() have the following design.
      process to terminate without waiting on its child process. The child process (a1monitor) has
      been designed to terminate once its parent (a1shell) has terminated (see a1monitor design
      below). \\
-   \item a1monitor
+   \item \textbf{a1monitor}: This is the child process of the a1shell process
    \begin{itemize}
-     \item This is the child process of the a1shell process
      \item Is in a while loop as long as its parent pid is the pid of a1shell
      \item Designed to terminate AFTER its parent process terminates.
      \item Prints the current time and date, followed by the information found
      in /sys/loadavg to stdout
-     \item Always exits successfully using \_Exit(EXIT\_SUCCESFUL) 
+     \item Always exits successfully using \_Exit(EXIT\_SUCCESFUL)
    \end{itemize}
 \end{enumerate}
 
 \section{Project Status}
 This project currently implements all functionalities outlined in the
-assignment outline.
+assignment outline. The main difficulities in the implementation of this
+assignment came from finding legitimate ways of testing the several
+functionalites of the code. Fortunately, I found that testing gave me the
+oppurtunity to learn and better my understanding of the various system calls
+necessary for the completion of this assignment.
+
 
 \section{Testing and Results}
 \textbf{a1monitor Testing}: The only testing to be done a1monitor was asserting that
 it's output was correct and that it exited properly after the a1shell process
-terminated. This was done by terminating the a1shell process and running 
+terminated. This was done by terminating the a1shell process and running
 \verb=ps -al | grep a1shell= to ensure the a1monitor process was not still running. \\
 
-\textbf{a1shell Testing}: Testing each of a1shell's supported commands (cd, pwd, 
+\noindent
+\textbf{a1shell Testing}: Testing each of a1shell's supported commands (cd, pwd,
 umask, done) was done manually while running the process. My main testing strategy
 here was to imitate the behaviour of the bash shell when running identical commands. \\
 
 \noindent
-Testing the execl() call was a little trickier because I had to make sure I was timing
-the process correctly.
-\textbf{Timing Test}: First, to test the total time elapsed, I ran a sleep command
+\textbf{Timing Test}: Testing the execl() call was a little trickier because I
+had to make sure I was timing the process correctly. \\
+\noindent
+First, to test the total time elapsed, I ran a sleep command
 from a1shell. The expected output for total time was the number of seconds I chose
 to sleep for. i.e. sleep 10 would yield 'total real time: 10.00'. \\
 To test the timing of the parent (a1shell) all I had to do was add a sleep anywhere
@@ -101,17 +115,22 @@ seconds. \\
 This could not be done for the child process because I could not add a sleep inside
 the execl() system call. Therefore, I made the child process do some work before
 running execl() in the form of a for loop. i.e.
-\being{verbatim}
+\begin{verbatim}
   for(i = 0; i<100000; i++) {
     printf("Hello\n");
   }
 \end{verbatim}
 This yielded
-\being{verbatim}
+\begin{verbatim}
   execl: total user time: 0.02
   execl: total cpu time: 0.17
 \end{verbatim}
 so I knew the timing was working for both the parent and child processes. \\
+
+\noindent
+Similarly, I used this strategy to test if setrlimit() was doing its job.
+I set a 1-second limit on the CPU time and ran a for loop that lasted longer than
+a minute and the program exited, as expected. \\
 \section{Acknowledgments}
 https://linux.die.net
 
