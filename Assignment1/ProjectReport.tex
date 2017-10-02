@@ -9,23 +9,15 @@
 
 \maketitle
 
-\section{Objectives}
-This project was an oppurtunity for myself to practice UNIX process managment function calls
+\section{Objective}
+This project was an oppurtunity to to practice UNIX process managment function calls
 in order to implement a simple and functional UNIX shell.
-
 
 \section{Design Overview}
 \textbf{Program File:} a1shell.c \\
 \textbf{Executable:} a1shell \\
 \textbf{Function Returns:} 0 on success and -1 on failure. \\
 \textbf{Makefile Options}: make $|$ make clean $|$ make tar \\
-
-\noindent
-In order to make my program more modular, I have created functions
-for the seperate functionalities of the a1shell process as well as
-a parser for these functions. These functions include... \\
-\textbf{parse}, \textbf{change\_dir}, \textbf{print\_dir}, \textbf{print\_mask},
-and \textbf{execute\_bash}. \\
 
 \noindent
 \textbf{usage()}: Prints the proper syntax for calling the a1shell executable. \\
@@ -44,9 +36,8 @@ The two processes created in main() have the following design.
 \begin{enumerate}
   \item \textbf{a1shell}: this is the parent process of the main program
    \begin{itemize}
-     \item scans for user input from stdout
-     \item determines what the user command is via string comparisons
-       and passes it to the parse function. Supported commands include...\\
+     \item Scans for user input from stdout
+     \item Passes the user command to the parse function. Supported commands include...\\
 
      \textbf{cd}: uses chdir() system call to change user directory \\
      \textbf{pwd}: prints working directory to stdout with getpwd\\
@@ -61,8 +52,8 @@ The two processes created in main() have the following design.
     In order to make my program more modular, I have created functions
     for the seperate functionalities of the a1shell process as well as
     a parser for these functions. These functions include... \\
-    \textbf{parse}, \textbf{change\_dir}, \textbf{print\_dir}, \textbf{print\_mask},
-    and \textbf{execute\_bash}. \\
+    \textbf{parse()}, \textbf{change\_dir()}, \textbf{print\_dir()}, \textbf{print\_mask()},
+    and \textbf{execute\_bash()}. \\
 
      \item Exits successfully with \_exit(EXIT\_SUCCESSFUL) and exits unsuccessfully
      with \_exit(EXIT\_UNSECCESSFULL)
