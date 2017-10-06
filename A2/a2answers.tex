@@ -1,0 +1,58 @@
+\documentclass{article}
+\usepackage{graphicx}
+\usepackage{bm}
+
+\begin{document}
+
+\title{CMPU 379 Assignment 2 - Phase 1 Answers}
+\author{Mark Griffith - 1422270}
+
+\maketitle
+
+\noindent
+\textbf{1.} No, you cannot simply monitor the size
+of a named pipe (FIFO) on the file system. Using
+ls -lh or du -sh will show the file size as 0B,
+even as it is being continually written to by
+a process. One method of monitoring the traffic
+between the two processes would be to trace one
+of them (see strace or ptrace). \\
+
+\noindent
+\textbf{2.} No. For processes to communicate via
+pipes, they must be on the same host. This
+is because pipes only exist within a single
+host and use buffers within virtual files
+instead of packets. To accomplish inter
+process communication between different hosts,
+you need to use sockets. \\
+
+\noindent
+\textbf{3.} When B attempts to open the FIFO,
+it is not blocked. \\
+
+\noindent
+\textbf{4.} Yes. Process B can detect that
+process A is locked while A is waiting for
+user input. B can use 'lockf(fd, T\_TEST, bytes)'
+to test if there is a lock on the FIFO. \\
+
+\noindent
+\textbf{5.}
+Loop (b) works properly. It first clears the buffer (sets all
+elements to 0), reads from stdin, and writes to stdout. \\
+
+\noindent
+The reason loop (a) doesn't work properly is because when the
+buffer is initialized it is not 0-set. Whatever was
+previously in the buffer will still be there. Strings are
+'0' terminated and so when printing the string in the
+buffer, it will print until the '0'. If we write
+"watermelon" to the buffer on the first iteration (of loop a),
+and "apple"
+on the second iteration, we will see the output "applemelon". \\
+
+\noindent
+Testing of each situation above was done by re-creating the
+specified loops on the lab machine.
+\end{document}
