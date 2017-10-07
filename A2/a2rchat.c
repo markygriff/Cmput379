@@ -14,6 +14,7 @@
 
 //temp
 const char* in_fifos[] = {"fifo-1.in","fifo-2.in","fifo-3.in","fifo-4.in","fifo-5.in"};
+char* in_fifo_pids[] = {NULL, NULL, NULL, NULL, NULL};
 const char* out_fifos[] = {"fifo-1.out","fifo-2.out","fifo-3.out","fifo-4.out","fifo-5.out"};
 
 int usage() {
@@ -25,20 +26,35 @@ int server_read(char* cmd) {
   return 0;
 }
 
+int read_fifo(const char* fifo, char* msg) {
+  int fd, nread;
+  fd = open(fifo, O_RDONLY);
+  if((nread = read(fd, msg, sizeof(msg))) == -1)
+    perror("Read Error");
+  close(fd);
+  return nread;
+}
+
+int write_fifo(const char* fifo, char* msg) {
+  int fd, nwrote;
+  fd = open(fifo, O_WRONLY);
+  if((nwrote = write(fd, msg, sizeof(msg))) == -1)
+    perror("Write Error");
+  close(fd);
+  return nwrote;
+}
+
 int begin_server(char* name, int nclient) {
   printf("Chat server begins [nclient = %d]\n", nclient);
-  char in_fifo[100];
-  int fd;
-
 
   pid_t pid;
   pid = fork();
-  if(pid == 0) {
-    static char cmd[BUFMAX];
+  if(pid == 0) { // stdin poll
 
     // temp
     _Exit(EXIT_SUCCESS);
 
+    static char cmd[BUFMAX];
     // server loop
     while(1) {
       // poll stdin
@@ -50,26 +66,33 @@ int begin_server(char* name, int nclient) {
     }
   }
   else {
+    char msg[BUFMAX];
+    int i, nread, nwrote;
     while(1) {
+      nread = 0;
+      nwrote = 0;
       // poll inFIFOs
-      int i, nread;
-
-      /* fd = open(in_fifos[0], O_WRONLY); */
-      /* write(fd, "Hi", sizeof("Hi")); */
-      /* close(fd); */
-
       for(i=0;i<NMAX;i++) {
-        char msg[BUFMAX];
-        fd = open(in_fifos[i],O_RDONLY);
-        if((nread = read(fd, msg, BUFMAX)) == -1)
-          perror("server: read error\nError ");
-        close(fd);
-        printf("[server] read '%s' from '%s'\n", msg, in_fifos[i]);
-        server_read(msg);
-        msg[0] = '\0';
+        memset(msg, 0, sizeof(msg));
+        nread = read_fifo(in_fifos[i], msg);
+        printf("server: [debug] read '%s' (%d bytes) from '%s'\n", msg, nread, in_fifos[i]);
+        // if the message received is greater than 0 bytes...
+        if(nread > 0) {
+          // fifo doesn't belong to another client
+          if(in_fifo_pids[i] == NULL) {
+            in_fifo_pids[i] = msg;
+          }
+          // fifo belongs to a client
+          else {
+            memset(msg, 0, strlen(msg));
+            nwrote = write_fifo(out_fifos[i], msg);
+            printf("server: [debug] wrote %s (%d bytes) to outFIFO[%d]\n", msg, nwrote, i);
+          }
+        }
       }
+      sleep(1);
       wait(NULL);
-      return 0;
+      /* return 0; */
     }
   }
 
@@ -113,34 +136,59 @@ int begin_server(char* name, int nclient) {
 }
 
 int begin_client(char* name) {
-  printf("Chat client begins\n");
-  static char cmd[BUFMAX];
-  static char username[BUFMAX];
-  char write_buf[BUFMAX];
-  char read_buf[BUFMAX];
-  int i;
+  static char msg[BUFMAX];
+  char username[BUFMAX] = {'\0'};
+  int i, nread, nwrote;
   int fd[2];
+
+  printf("Chat client begins\n");
+
   // client loop
   while(1) {
-    printf("a2chat_client: ");
-    scanf("%s", cmd);
+    memset(msg, 0, sizeof(msg));
 
-    if(strcmp(cmd,"open") == 0) {
+    // check outFIFO for replies
+    if(username[0] != '\0') {
+      nread = read_fifo(out_fifos[i], msg);
+      printf("client: [debug] read '%s' (%d bytes) from outFIFO[%d]\n", msg, nread, i);
+    }
+
+    printf("a2chat_client: ");
+    scanf("%s", msg);
+
+    // if the client has a username, it has an inFIFO to send msgs
+    if(username[0] != '\0') {
+      // send message
+      printf("client: [debug] [username=%s] sending '%s' to inFIFO[%d]\n",\
+        username, msg, i);
+      nwrote = write_fifo(in_fifos[i], msg);
+      // write server response to stdout
+    }
+
+    if(strcmp(msg,"open") == 0) {
+      if(username[0] != '\0') {
+        printf("This client already has the username '%s'\n", username);
+        break;
+      }
       scanf("%s", username);
       // check for an unlocked inFIFO
       for(i=0;i<NMAX;i++) {
         fd[0] = open(in_fifos[i], O_WRONLY);
         if(lockf(fd[0], F_TEST, 0) == 0) { //unlocked
+          // lock the inFIFO
           lockf(fd[0], F_LOCK, BUFMAX);
           printf("FIFO [%s] has been successfully locked by PID %d\n", in_fifos[i], getpid());
-          // tell server this client has locked the fifo
-          strcat(write_buf, "LOCKED ");
-          strcat(write_buf, username);
-          write(fd[0], write_buf, sizeof(write_buf));
+          // write into the inFIFO to notify the server
+          memset(msg, 0, sizeof(msg));
+          strcat(msg, username);
+          printf("client: [debug] writing '%s' to inFIFO\n", msg);
+          write(fd[0], msg, sizeof(msg));
           // await server response
-          fd[1] = open(out_fifos[i], O_RDONLY);
-          read(fd[1], read_buf, sizeof(read_buf));
-          // unlock and close file if server denies access
+          memset(msg, 0, strlen(msg));
+          nread = read_fifo(out_fifos[i], msg);
+          printf("client: [debug] read '%s' from outFIFO[%d]\n", msg, i);
+
+          // TODO: unlock and close file if server denies access
           break;
         }
         if(i == NMAX-1)
@@ -148,7 +196,7 @@ int begin_client(char* name) {
       }
     }
 
-    if(strcmp(cmd,"done") == 0) {
+    if(strcmp(msg,"done") == 0) {
       // unlock
 
       close(fd[0]);
@@ -173,8 +221,8 @@ int begin_client(char* name) {
     /// if in connected state...
     /// poll from outFIFO
     /// process response line
-
   }
+  return 0;
 }
 
 int main(int argc, const char* argv[]) {
