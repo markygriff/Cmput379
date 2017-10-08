@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <errno.h>
 #include <sys/wait.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -11,10 +12,18 @@
 
 #define NMAX 5
 #define BUFMAX 1024
+#define ARGSMAX 8
+#define INFIFO "inFIFO"
+#define OUTFIFO "outFIFO"
 
 //temp
 /* const char* in_fifos[] = {"fifo-1.in","fifo-2.in","fifo-3.in","fifo-4.in","fifo-5.in"}; */
-const char* in_fifos[] = {"fifo-1.in",NULL,"fifo-2.in",NULL,"fifo-3.in",NULL,"fifo-4.in",NULL,"fifo-5.in"};
+/* const char* in_fifos[] = {"fifo-1.in",NULL,"fifo-2.in",NULL,"fifo-3.in",NULL,"fifo-4.in",NULL,"fifo-5.in"}; */
+/* const char* in_fifos[] = {"fifo-1.in","fifo-2.in","fifo-3.in","fifo-4.in","fifo-5.in"}; */
+/* const char* out_fifos[] = {"fifo-1.out","fifo-2.out","fifo-3.out","fifo-4.out","fifo-5.out"}; */
+
+
+const char* in_fifos[] = {"fifo-1.in","fifo-2.in","fifo-3.in","fifo-4.in","fifo-5.in"};
 const char* out_fifos[] = {"fifo-1.out","fifo-2.out","fifo-3.out","fifo-4.out","fifo-5.out"};
 
 int usage() {
@@ -29,19 +38,28 @@ int usage() {
 /*      return --dest; */
 /* } */
 
-int create_fifos(const char* name, int num) {
-  int i, err;
+void create_fifos(const char* name, int num) {
+  int i, ret;
   char new_name[strlen(name) + 6];
+
+  // TODO: create FIFO name array during creation of FIFOs
+
   for(i=1;i<=num;i++) {
     sprintf(new_name, "%s-%d.in", name, i);
-    mkfifo(new_name, S_IRWXU);
+    ret = mkfifo(new_name, S_IRWXU);
+    if ((ret == -1) && (errno != EEXIST)) {
+	    perror("Error creating the named cpipe (in)");
+	    exit (1);
+    }
     memset(new_name, 0, strlen(new_name));
     sprintf(new_name, "%s-%d.out", name, i);
-    mkfifo(new_name, S_IRWXU);
+    ret = mkfifo(new_name, S_IRWXU);
+    if ((ret == -1) && (errno != EEXIST)) {
+	    perror("Error creating the named pipe (out)");
+	    exit (1);
+    }
     memset(new_name, 0, strlen(new_name));
   }
-  err = 0;
-  return err;
 }
 
 int read_fifo(const char* fifo, char* msg, size_t size) {
@@ -69,8 +87,12 @@ int begin_server(const char* name, int nclient) {
   pid_t pid;
   pid = fork();
   if(pid == 0) { // stdin poll
+    //TODO: find a way of exiting properly. Right now, if the server
+    //      gets blocked on a read, it will hang indefinetly. So exiting
+    //      from here doesn nothing
     // temp
     _Exit(EXIT_SUCCESS);
+
     static char cmd[BUFMAX];
     // server loop
     while(1) {
@@ -83,161 +105,199 @@ int begin_server(const char* name, int nclient) {
     }
   }
   else {
-    char msg[BUFMAX];
     int i, nread, nwrote;
+    char* return_fifo;
+    char* cmd;
+    char* buf;
+    char in_msg[BUFMAX];
+    char out_msg[BUFMAX];
+
+    create_fifos(name, nclient);
+
     while(1) {
-      nread = 0;
-      nwrote = 0;
-      // poll inFIFOs
-      for(i=0;i<(2*NMAX);i+=2) {
-        memset(msg, 0, sizeof(msg));
-        printf("[debug] server: reading from '%s'\n", in_fifos[i]);
-        // if the message received is greater than 0 bytes...
-        if ((nread = read_fifo(in_fifos[i], msg, sizeof(msg))) > 0) {
-          printf("[debug] server: read '%s' (%d bytes) from '%s'\n", msg, nread, in_fifos[i]);
-            // fifo doesn't belong to another client
-            if(in_fifos[i+1] == NULL) {
-              in_fifos[i+1] = strdup(msg);
-              char resp[BUFMAX];
-              // write response
-              sprintf(resp, "[server] User '%s' has been successfully connected to FIFO %d\n", in_fifos[i+1], i+1);
-              memset(msg, 0, sizeof(msg));
-              nwrote = write_fifo(out_fifos[i], resp, sizeof(resp));
-              printf("[debug] server: wrote '%s' (%d bytes) to outFIFO[%d]\n", resp, nwrote, i);
-            }
-            // fifo belongs to a client
-            else {
-              // NOTE: we are just echoing the msg back to the client for now
-              // TODO: echo msg to recipients of the session
-              memset(msg, 0, strlen(msg));
-              nwrote = write_fifo(out_fifos[i], msg, sizeof(msg));
-              printf("server: [debug] wrote %s (%d bytes) to outFIFO[%d]\n", msg, nwrote, i);
-            }
+
+      // TODO: create FIFOs for the client
+
+      memset(in_msg, 0, sizeof(in_msg));
+      printf("[debug] server: reading from '%s'\n", in_fifos[0]);
+      if ((nread = read_fifo(in_fifos[0], in_msg, sizeof(in_msg))) > 0)
+        printf("[debug] server: read '%s' (%d bytes) from '%s'\n", in_msg, nread, in_fifos[0]);
+
+      if(nread == 0)
+        continue;
+
+      if (nread > 0) {
+        return_fifo = strtok(in_msg, ", \n");
+        printf("[debug] server: return_fifo: '%s'\n", return_fifo);
+
+        cmd = strtok(NULL, ", \n");
+        printf("[debug] server: cmd: '%s'\n", cmd);
+
+        buf = strtok(NULL, ", \n");
+        strcpy(out_msg, "[server] ");
+        strcat(out_msg, buf);
+        printf("[debug] server: msg: '%s'\n", out_msg);
+
+        if((nwrote = write_fifo(return_fifo, out_msg, strlen(out_msg))) != strlen(out_msg)) {
+          perror("write error");
+          break;
         }
+        return 0;
+
       }
-      sleep(1);
-      wait(NULL);
-      /* return 0; */
+
+
+      // poll inFIFOs
+      /* for(i=0;i<(2*NMAX);i+=2) { */
+      /*   memset(msg, 0, sizeof(msg)); */
+      /*   printf("[debug] server: reading from '%s'\n", in_fifos[i]); */
+      /*   if ((nread = read_fifo(in_fifos[i], msg, sizeof(msg))) > 0) { */
+      /*     printf("[debug] server: read '%s' (%d bytes) from '%s'\n", msg, nread, in_fifos[i]); */
+      /*       // fifo doesn't belong to another client */
+      /*       if(in_fifos[i+1] == NULL) { */
+      /*       in_fifos[i+1] = strdup(msg); */
+      /*       char resp[BUFMAX]; */
+      /*       // write response */
+      /*       sprintf(resp, "[server] User '%s' has been successfully connected to FIFO %d\n", in_fifos[i+1], i+1); */
+      /*      memset(msg, 0, sizeof(msg)); */
+      /*       nwrote = write_fifo(out_fifos[i], resp, sizeof(resp)); */
+      /*       printf("[debug] server: wrote '%s' (%d bytes) to outFIFO[%d]\n", resp, nwrote, i); */
+      /*     } */
+      /*     // fifo belongs to a client */
+      /*     else { */
+      /*       // NOTE: we are just echoing the msg back to the client for now */
+      /*       // TODO: echo msg to recipients of the session */
+      /*       memset(msg, 0, strlen(msg)); */
+      /*       nwrote = write_fifo(out_fifos[i], msg, sizeof(msg)); */
+      /*       printf("server: [debug] wrote %s (%d bytes) to outFIFO[%d]\n", msg, nwrote, i); */
+      /*     } */
+      /*   } */
+      /* } */
+      /* if(waitpid(pid, &status, WNOHANG) == pid) */
+      /*   _exit(EXIT_SUCCESS); */
     }
   }
-
-
-
-    // process command
-    // form a response (if needed)
-    // send response to client
-
-    // on success of client command, send client "[server] info"
-    // on failure of client command, send client "[server] Error: info"
-
-    // if open...
-    // check if there are any unlocked inFIFO's available
-    // check if client has a session already
-    // check if the server has reached its client limit (nclient)
-    // check if the username for the client is already being used
-    // make an inFIFO
-    // printf("[server] User '%s" connected to FIFO %d\n", users[i], i);
-
-    // if who...
-    // printf("[server] Current users:")
-    // for 0 -> sizeof(users)
-    //   printf("[%d] %s,", i, users[i])
-
-    // if < [chat_line]...
-    // server sends "[username] chat_line" to all recipients of the user
-
-    // if done...
-    // close inFIFO of user
-    // remove client username from users
-    // send("[server] done")
-
-    // if exit FROM inFIFO...
-    // close inFIFO of user
-
-    // if exit FROM STDIN
-    // terminate server
-
   return 0;
 }
 
-int client_poll(int fifo_n) {
+/* int client_poll(int fifo_n) { */
 
-  // TODO: pass in username?
+/*   // TODO: pass in username? */
 
-  static char msg[BUFMAX];
-  int nread, nwrote, status;
-  pid_t pid = fork();
-  if(pid == 0) { // outFIFO poll
-    while((strcmp(msg, "done") != 0) || (strcmp(msg, "exit") != 0) ) {
-      memset(msg, 0, sizeof(msg));
-      printf("a2chat_client: ");
-      scanf("%s", msg);
-      if(strcmp(msg, "done") == 0) { //terminate chat session
-        break;
-      }
-      else if(strcmp(msg, "exit") == 0) { // terminate chat session and client process
-        // TODO: figure out how to terminate client from here
-        break;
-      }
-      else {
-        nwrote = write_fifo(in_fifos[fifo_n], msg, sizeof(msg));
-        printf("[debug] client: wrote '%s' (%d bytes) to inFIFO[%d]\n", msg, nwrote, fifo_n);
-      }
-    }
-    _Exit(EXIT_SUCCESS);
-  }
-  else { // inFIFO writing
-    while(1) {
-      memset(msg, 0, sizeof(msg));
-      printf("[debug] client: reading from outFIFO[%d]\n", fifo_n);
-      nread = read_fifo(out_fifos[fifo_n], msg, sizeof(msg));
-      printf("[debug] client: read '%s' (%d bytes) from outFIFO[%d]\n", msg, nread, fifo_n);
-      if(waitpid(pid, &status, WNOHANG) == pid) break;
-    }
-  // TODO: delete username from in_fifos?
-  return 0;
-  }
-}
+/*   static char msg[BUFMAX]; */
+/*   int nread, nwrote, status; */
+/*   pid_t pid = fork(); */
+/*   if(pid == 0) { // outFIFO poll */
+/*     while((strcmp(msg, "done") != 0) || (strcmp(msg, "exit") != 0) ) { */
+/*       memset(msg, 0, sizeof(msg)); */
+/*       printf("a2chat_client: "); */
+/*       scanf("%s", msg); */
+/*       if(strcmp(msg, "<")) { */
+/*         nwrote = write_fifo(in_fifos[fifo_n], msg, sizeof(msg)); */
+/*         printf("[debug] client: wrote '%s' (%d bytes) to inFIFO[%d]\n", msg, nwrote, fifo_n); */
+/*       } */
+/*       if(strcmp(msg, "done") == 0) { //terminate chat session */
+/*         break; */
+/*       } */
+/*       else if(strcmp(msg, "exit") == 0) { // terminate chat session and client process */
+/*         // TODO: figure out how to terminate client from here */
+/*         break; */
+/*       } */
+/*       else {} */
+/*     } */
+/*     _Exit(EXIT_SUCCESS); */
+/*   } */
+/*   else { // inFIFO writing */
+/*     while(1) { */
+/*       memset(msg, 0, sizeof(msg)); */
+/*       printf("[debug] client: reading from outFIFO[%d]\n", fifo_n); */
+/*       nread = read_fifo(out_fifos[fifo_n], msg, sizeof(msg)); */
+/*       printf("[debug] client: read '%s' (%d bytes) from outFIFO[%d]\n", msg, nread, fifo_n); */
+/*       if(waitpid(pid, &status, WNOHANG) == pid) break; */
+/*     } */
+/*   // TODO: delete username from in_fifos? */
+/*   return 0; */
+/*   } */
+/* } */
 
 int begin_client(const char* name) {
-  static char msg[BUFMAX];
-  char username[BUFMAX] = {'\0'};
   int i, fd, nread, nwrote;
+  char cmd_buf[BUFMAX];
+  char msg[BUFMAX];
+  char* username;
+  char* cmd;
+  char* args;
 
   printf("Chat client begins\n");
 
   // client loop
   while(1) {
-    memset(msg, 0, sizeof(msg));
+    /* memset(cmd, 0, sizeof(msg)); */
+    memset(cmd_buf, 0, sizeof(cmd_buf));
 
     printf("a2chat_client: ");
-    scanf("%s", msg);
+    fflush(stdout);
+    /* if((nread = read(STDIN_FILENO, cmd_buf, sizeof(cmd_buf))) == -1) */
+    /*   perror("stdin read error"); */
+    /* if(nread > 0) { */
+    /*   cmd = strtok(cmd_buf, ", \n"); */
+    /*   while(args[i] != NULL && i < ARGSMAX) */
+    /*     args[++i] = strtok(NULL, ", \n"); */
+    /*   int num_args = i; */
+    /*   printf("cmd: '%s'\n", cmd); */
 
-    if(strcmp(msg,"open") == 0) {
-      if(username[0] != '\0') {
-        printf("This client already has the username '%s'\n", username);
-        break;
-      }
-      scanf("%s", username);
+    if(fgets(cmd_buf, sizeof(cmd_buf), stdin) == NULL)
+      continue;
+
+    cmd = strtok(cmd_buf, ", \n");
+
+    if(strcmp(cmd,"open") == 0) {
+      username = strtok(NULL, ", \n");
+      /* args = strtok(NULL, ""); */
+
+      /* if(username[0] != '\0') { */
+      /*   printf("This client already has the username '%s'\n", username); */
+      /*   break; */
+      /* } */
       // check for an unlocked inFIFO
       for(i=0;i<NMAX;i++) {
         fd = open(in_fifos[i], O_WRONLY);
+        // lock the inFIFO
         if(lockf(fd, F_TEST, 0) == 0) { //unlocked
-          // lock the inFIFO
           lockf(fd, F_LOCK, BUFMAX);
           printf("FIFO [%s] has been successfully locked by PID %d\n", in_fifos[i], getpid());
+
           // write into the inFIFO to notify the server
-          memset(msg, 0, sizeof(msg));
+          // msg: [outfifo name, command, message]
+          strcpy(msg, out_fifos[i]);
+          strcat(msg, " ");
+          strcat(msg, cmd);
+          strcat(msg, " ");
           strcat(msg, username);
+
+          /* strcat(msg, " "); */
+          /* strcat(msg, cmd); */
+          /* strcat(msg, " "); */
+          /* strcat(msg, username); */
+
           printf("client: [debug] writing '%s' to inFIFO[%d] to notify server\n", msg, i);
-          nwrote = write_fifo(in_fifos[i], msg, sizeof(msg));
+          if((nwrote = write_fifo(in_fifos[i], msg, strlen(msg))) != strlen(msg)) {
+            perror("write error");
+            // TODO: what to do here?
+            break;
+          }
           printf("[debug] client: wrote '%s' (%d bytes) to inFIFO[%d]\n", msg, nwrote, i);
+
           // await server response
           memset(msg, 0, strlen(msg));
           nread = read_fifo(out_fifos[i], msg, sizeof(msg)); // this read is blocked
-          printf("client: [debug] read '%s' (%d bytes) from outFIFO[%d]\n", msg, nread, i);
+          /* printf("client: [debug] read '%s' (%d bytes) from outFIFO[%d]\n", msg, nread, i); */
+          printf("%s\n", msg);
+          return 0;
+
           // begin chat session
-          client_poll(i);
+          /* client_poll(i); */
+
           // only exits if chat session is to be closed
           lockf(fd, F_ULOCK, BUFMAX);
           printf("client: [debug] inFIFO[%s] has been unlocked\n", in_fifos[i]);
@@ -249,31 +309,11 @@ int begin_client(const char* name) {
       }
     }
 
-    if(strcmp(msg,"exit") == 0) {
+    if(strcmp(cmd,"exit") == 0) {
       // terminate
       printf("client: [debug] exiting...\n");
       _exit(EXIT_SUCCESS);
     }
-    /// send command to server
-
-    // open [username]:
-    //    locksFIFO -> printf("FIFO [%s-%d.in] has been locked by PID [%d]\n", name, i, pid)
-    // get server response and display -> printf("%s\n", resp)
-
-    // who
-    // to [u1 u2 ...]
-    // < [chat_line]
-    // close
-    // exit
-
-
-    /// wait for the server response line
-    /// process the response line
-
-
-    /// if in connected state...
-    /// poll from outFIFO
-    /// process response line
   }
   return 0;
 }
@@ -283,7 +323,6 @@ int main(int argc, const char* argv[]) {
     return usage();
   // get baseName and create inFIFOs and outFIFOs
   const char* baseName = argv[2];
-  create_fifos(baseName, 5);
   if((strcmp(argv[1], "-s") == 0) && argc == 4) { // server
     // number of clients
     int nclient;
