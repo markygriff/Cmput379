@@ -28,11 +28,6 @@ typedef int bool;
 #define BUFMAX 1024
 #define ARGSMAX 8
 
-/* const char* in_fifos[] = {"fifo-1.in","fifo-2.in","fifo-3.in","fifo-4.in","fifo-5.in"}; */
-/* const char* out_fifos[] = {"fifo-1.out","fifo-2.out","fifo-3.out","fifo-4.out","fifo-5.out"}; */
-
-/* const char* in_fifos[] = {NULL,NULL,NULL,NULL,NULL}; */
-/* const char* out_fifos[] = {NULL,NULL,NULL,NULL,NULL}; */
 
 int usage() {
   printf("usage: a2chat [-s baseName nclient]\n");
@@ -197,7 +192,7 @@ int begin_server(const char* name, int nclients) {
             connected[i] = false;
             sprintf(out_msg, "[server] done");
           }
-          // else echo whatever was sent
+          // else, unsupported command
           else {
             strcat(cmd, " ");
             strcat(cmd, args);
@@ -238,6 +233,7 @@ int client_poll(char* in_fifo, char* out_fifo) {
 
     while(1) {
       memset(cmd_buf, 0, sizeof(cmd_buf));
+      memset(write_buf, 0, sizeof(write_buf));
 
       printf("a2chat_client: ");
       fflush(stdout);
@@ -247,15 +243,15 @@ int client_poll(char* in_fifo, char* out_fifo) {
 
       // msg format: [outfifo, command, [message]]
       cmd = strtok(cmd_buf, ", \n");
-      strcpy(write_buf, out_fifo); // DO I HAVE TO MEMSET WRITE_BUF?
+      strcpy(write_buf, out_fifo);
       strcat(write_buf, " ");
-      strcat(write_buf, cmd); // outfifo cmd
+      strcat(write_buf, cmd); // [outfifo] [cmd]
 
+      // write message to infifo
       if(strcmp(cmd, "<") == 0) {
 
         // determine if there is a message to write
         if((msg = strtok(NULL, "\n")) != NULL) {
-          // append message
           strcat(write_buf, " ");
           strcat(write_buf, msg);
         }
@@ -263,26 +259,31 @@ int client_poll(char* in_fifo, char* out_fifo) {
         DEBUG_PRINT(("[debug] chat sesh: writing '%s' to %s\n", write_buf, in_fifo));
 
         if((nwrote = write_fifo(in_fifo, write_buf, strlen(write_buf))) != strlen(write_buf)) {
-          // hendle error
+          // notify user that message did not go through to server
+          printf("\n*[oops! an error occured when sending your message.\nplease try again...]*\n\n");
           continue;
         }
       }
 
-      else if(strcmp(cmd, "close") == 0) { //terminate chat session
+      //terminate chat session
+      else if(strcmp(cmd, "close") == 0) {
         if((nwrote = write_fifo(in_fifo, write_buf, strlen(write_buf))) != strlen(write_buf)) {
           // hendle error
         }
         DEBUG_PRINT(("[debug] chat sesh: exiting write process...\n"));
-        _Exit(EXIT_SUCCESS);
+        _Exit(0);
       }
 
-      else if(strcmp(cmd, "exit") == 0) { // terminate chat session and client process
+      // terminate chat session and client process
+      else if(strcmp(cmd, "exit") == 0) {
         if((nwrote = write_fifo(in_fifo, write_buf, strlen(write_buf))) != strlen(write_buf)) {
           // hendle error
         }
         DEBUG_PRINT(("[debug] chat sesh: exiting write process...\n"));
-        _Exit(EXIT_FAILURE);
+        _Exit(1);
       }
+      // sleep to allow time for server response
+      sleep(1);
     }
   }
   else { // read process
@@ -291,9 +292,12 @@ int client_poll(char* in_fifo, char* out_fifo) {
 
     while(1) {
 
-      // TODO: GET STATUS AND RETURN -1 IF FAILURE (EXIT)
       if(waitpid(pid, &status, WNOHANG) == pid) {
-        DEBUG_PRINT(("[debug] chat sesh: exiting read process...\n"));
+        DEBUG_PRINT(("[debug] chat sesh: exiting read process...\n\
+              exit status was %d\n", WEXITSTATUS(status)));
+        if(WEXITSTATUS(status) == 1) {
+          return 1;
+        }
         return 0;
       }
 
@@ -339,6 +343,7 @@ int begin_client(const char* name) {
     if(fgets(cmd_buf, sizeof(cmd_buf), stdin) == NULL || cmd_buf[0] == '\n')
       continue;
 
+    // extract user command
     cmd = strtok(cmd_buf, ", \n");
 
     if(strcmp(cmd,"open") == 0) {
@@ -347,7 +352,7 @@ int begin_client(const char* name) {
         sprintf(in_fifo, "%s-%d.in", name, i+1);
         fd = open(in_fifo, O_RDWR|O_NONBLOCK);
 
-        // test if locked
+        // test if fifo is locked
         // 0 if unlocked or locked by this process
         if(lockf(fd, F_TEST, 0) != 0) {
           close(fd);
@@ -360,15 +365,15 @@ int begin_client(const char* name) {
           lockf(fd, F_LOCK, BUFMAX);
           printf("FIFO [%s] has been successfully locked by PID %d\n", in_fifo, getpid());
 
-
-          // write into the fifo.in to notify the server
-          // msg format: [outfifo, command, message]
+          // if username not specified, give the user a default username
           if((username = strtok(NULL, "")) == NULL) {
             char buf[10];
             sprintf(buf, "Default User %d", i+1);
             username = buf;
           }
 
+          // write into the fifo.in to notify the server
+          // msg format: [outfifo, command, message]
           sprintf(out_fifo, "%s-%d.out", name, i+1);
           strcpy(msg, out_fifo);
           strcat(msg, " ");
@@ -378,6 +383,7 @@ int begin_client(const char* name) {
 
           DEBUG_PRINT(("[debug] client: writing '%s' to inFIFO[%d] to notify server\n", msg, i));
 
+          // write message to locked in-fifo
           if((nwrote = write_fifo(in_fifo, msg, strlen(msg))) != strlen(msg)) {
             lockf(fd, F_ULOCK, BUFMAX);
             break;
@@ -403,7 +409,8 @@ int begin_client(const char* name) {
 
 
           // 0 = close
-          // -1 = exit or err
+          // 1 = exit
+          // -1 = err
           int ret;
           ret = client_poll(in_fifo, out_fifo);
 
@@ -411,14 +418,22 @@ int begin_client(const char* name) {
           lockf(fd, F_ULOCK, BUFMAX);
           printf("Chat session closed. FIFO [%s] unlocked by PID %d\n", in_fifo, getpid());
 
-          if(ret == 0) break;
-          else return -1;
+          if(ret == 0)
+            break;
+
+          else if(ret == 1) {
+            printf("exiting...\n");
+            return 0;
+          }
+
+          else
+            return -1;
         }
       }
     }
 
     if(strcmp(cmd, "<") == 0) {
-      printf("This user is not connected to a chat session!\n");
+      printf("You are not connected to a chat session!\n");
     }
 
     else if(strcmp(cmd, "close") == 0) {

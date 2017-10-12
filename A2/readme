@@ -1,2 +1,24 @@
 Mark Griffith - 1422270
 
+Project Status:
+Currently, my a2rchat program has the ability to spawn clients and servers,
+as specified in the assignment outline.
+
+
+Client: ./a2rchat -c fifo-name
+
+The clients have the ability to open a chat session. Any message sent to
+the chat session is echoed back by the server of the chat session.
+
+
+Server: ./a2rchat -s fifo-name nclients
+
+The server can read from the in fifos and write to the accompanying out fifos.
+
+
+Some things to note:
+  - If there is no server present, the client cannot open a chat session.
+  - The creation of the fifos is handled by the server
+  - The maximum buffer size is defined at the top of the file. Currently, it
+   is set to 1024.
+  - The deletion of fifos is handled by the 'make clean' command of the Makefile
