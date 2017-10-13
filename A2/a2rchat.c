@@ -454,7 +454,7 @@ int begin_client(const char* name) {
             // allow time for server to read message
             sleep(1);
             if((nread = read_fifo(out_fifo, msg, sizeof(msg))) <= 0) {
-              printf("unexpected read error. please try again...\n");
+              printf("error connecting with server...\n");
               break;
             }
           }
