@@ -1,8 +1,21 @@
 Mark Griffith - 1422270
 
 Project Status:
-Currently, my a2rchat program has the ability to spawn clients and servers,
-as specified in the assignment outline.
+Currently, my a2rchat program has all of the functionality
+specified in the assignment outline for phase 1 of assignment 2.
+
+There is a small issue where the client cannot spawn a
+chat session when using open. This happens RARELY and is caused
+by a write error from the client to server. This write error
+occurs when the server does not have the infifo open for read.
+The server has a timeout of 0.25 seconds on each read so there
+is a small delay (larger delay the more clients there are)
+between each subsequent read of each infifo. For this reason, I
+have chosen not to terminate on this specific write error and
+to instead, give the server a second to read and respond. After
+this change, I have not seen the issue reappear. However, I did
+add a safety net so if the read error persists, the user is
+told that there is an error with the server.
 
 
 Client: ./a2rchat -c fifo-name
@@ -19,6 +32,10 @@ The server can read from the in fifos and write to the accompanying out fifos.
 Some things to note:
   - If there is no server present, the client cannot open a chat session.
   - The creation of the fifos is handled by the server
-  - The maximum buffer size is defined at the top of the file. Currently, it
-   is set to 1024.
   - The deletion of fifos is handled by the 'make clean' command of the Makefile
+  - The maximum buffer size is defined at the top of the file. Currently, it
+    is set to 1024.
+  - I am using the NONBLOCK flag for all opens. This is because the server must
+    be reading through 'nclient' number of fifos and shouldn't be blocked on
+    one.
+  - The server has a timeout = 0.25 seconds on all of its reads.

@@ -1,3 +1,5 @@
+/* Mark Griffith - 1422270 */
+
 #include <stdio.h>
 #include <ctype.h>
 #include <stdlib.h>
@@ -26,7 +28,6 @@ typedef int bool;
 
 #define NMAX 5
 #define BUFMAX 1024
-#define ARGSMAX 8
 
 typedef struct client_map {
   char user[BUFMAX];
@@ -34,9 +35,10 @@ typedef struct client_map {
   pid_t user_pid;
 } client_map_t, *client_map_p;
 
+
 int usage() {
-  printf("usage: a2chat [-s baseName nclient]\n");
-  printf("       a2chat [-c baseName]\n");
+  printf("usage: a2chat -s [baseName nclient]\n");
+  printf("       a2chat -c [baseName]\n");
   return -1;
 }
 
@@ -44,7 +46,6 @@ int usage() {
 void create_fifos(const char* name, int num) {
   int i, ret;
   char new_name[strlen(name) + 6];
-
   for(i=1;i<=num;i++) {
     memset(new_name, 0, strlen(new_name));
     sprintf(new_name, "%s-%d.in", name, i);
@@ -53,7 +54,6 @@ void create_fifos(const char* name, int num) {
 	    perror("Error creating the named cpipe (in)");
 	    exit (1);
     }
-
     memset(new_name, 0, strlen(new_name));
     sprintf(new_name, "%s-%d.out", name, i);
     ret = mkfifo(new_name, S_IRWXU);
@@ -65,37 +65,32 @@ void create_fifos(const char* name, int num) {
 }
 
 /// Helper read function
+/// * only to be used with outfifos *
 int read_fifo(const char* fifo, char* msg, size_t size) {
   int fd, select_ret, nread;
   fd_set readfds;
   struct timeval tv;
-
   fd = open(fifo, O_RDONLY | O_NONBLOCK);
-
   FD_ZERO(&readfds);
   FD_SET(fd, &readfds);
-
   tv.tv_sec = 0; // seconds
   tv.tv_usec = 500000; // microseconds
-
   if((select_ret = select(fd+1, &readfds, NULL, NULL, &tv)) == -1) {
     perror("select error");
     return -1;
   }
-
   else if(select_ret == 0) {
     return 0;
   }
-
   if((nread = read(fd, msg, size)) == -1)
     perror("read error");
-
-  /* close(fd); */
+  close(fd);
   DEBUG_PRINT(("[debug] read_fifo: read %d bytes\n", nread));
   return nread;
 }
 
 /// Helper write funciton
+/// * only to be used with outfifos *
 int write_fifo(const char* fifo, char* msg, size_t size) {
   int fd, nwrote;
   fd = open(fifo, O_WRONLY | O_NONBLOCK);
@@ -113,10 +108,10 @@ int begin_server(const char* name, int nclients) {
   pid = fork();
   if(pid == 0) { // stdin poll
     char cmd[BUFMAX];
-    // server loop
     while(1) {
       // poll stdin
       scanf("%s", cmd);
+      // terminate server
       if(strcmp(cmd, "exit") == 0) {
         printf("exiting server...\n");
         _Exit(EXIT_SUCCESS);
@@ -131,6 +126,7 @@ int begin_server(const char* name, int nclients) {
     char in_msg[BUFMAX];
     char out_msg[BUFMAX];
     char in_fifo[strlen(name) + 6];
+
     fd_set readfds;
     struct timeval tv;
 
@@ -140,10 +136,6 @@ int begin_server(const char* name, int nclients) {
 
     // create enough fifos for number of clients
     create_fifos(name, nclients);
-
-    /* for(i=0;i<nclients;i++) { */
-    /*   fd[0] = open(, O_WRONLY | O_NONBLOCK); */
-    /* } */
 
     while(1) {
 
@@ -158,29 +150,28 @@ int begin_server(const char* name, int nclients) {
 
         DEBUG_PRINT(("[debug] server: reading from %d '%s'\n", i, in_fifo));
 
-        // read from the infifo
+        // open from the infifo to read from
         fd = open(in_fifo, O_RDONLY | O_NONBLOCK);
 
         FD_ZERO(&readfds);
         FD_SET(fd, &readfds);
         tv.tv_sec = 0; // seconds
-        tv.tv_usec = 500000; // microseconds
+        tv.tv_usec = 250000; // microseconds
 
+        // check if the infifo has data to read
         if((select_ret = select(fd+1, &readfds, NULL, NULL, &tv)) == -1) {
           perror("select error");
           continue;
         }
-
+        // nothing to read
         else if(select_ret == 0)
           continue;
 
-        /* if ((nread = read_fifo(in_fifo, in_msg, sizeof(in_msg))) < 0) { */
+        // read from the infifo
         if ((nread = read(fd, in_msg, sizeof(in_msg))) < 0) {
           // a read error here should not cause the server to fail
           continue;
         }
-
-        // nothing to read
         else if(nread == 0)
           continue;
 
@@ -188,7 +179,9 @@ int begin_server(const char* name, int nclients) {
         else if(nread > 0) {
           DEBUG_PRINT(("[debug] server: read '%s' (%d bytes) from '%s'\n", in_msg, nread, in_fifo));
 
-          // client message format: [return fifo, command, arguments]
+          // NOTE: client message format: [return fifo, command, arguments]
+
+          // disect client message into write message
           return_fifos[i] = strtok(in_msg, ", \n"); // fifo-i.out
           DEBUG_PRINT(("[debug] server: return_fifo is '%s'\n", return_fifos[i]));
 
@@ -213,23 +206,18 @@ int begin_server(const char* name, int nclients) {
           }
 
           // close the user's chat session (don't have to notify other users)
-          else if(strcmp(cmd, "close") == 0) {
+          else if((strcmp(cmd, "close") == 0) || (strcmp(cmd, "exit") == 0))  {
             clients[i].connected = false;
             memset(clients[i].user, 0, strlen(clients[i].user));
             sprintf(out_msg, "[server] done");
           }
 
-          else if(strcmp(cmd, "exit") == 0) {
-            clients[i].connected = false;
-            memset(clients[i].user, 0, strlen(clients[i].user));
-            sprintf(out_msg, "[server] done");
-          }
-          // else, unsupported command
+          // else, unsupported command. Do nothing
           else {
             continue;
-            strcat(cmd, " ");
-            strcat(cmd, args);
-            strcpy(out_msg, cmd);
+            /* strcat(cmd, " "); */
+            /* strcat(cmd, args); */
+            /* strcpy(out_msg, cmd); */
           }
 
           DEBUG_PRINT(("[debug] server: writing '%s' to %s\n", out_msg, return_fifos[i]));
@@ -246,10 +234,12 @@ int begin_server(const char* name, int nclients) {
   return 0;
 }
 
-int client_poll(char* username, char* in_fifo, char* out_fifo) {
-
-  printf("***chat session opened***\n");
-  printf("   welcome %s\n", username);
+/// Initializes chat session for a client process
+/// Spawns two processes: read and write
+/// Returns: -1 on err, 1 on exit, 0 on close
+int client_chat(char* username, char* in_fifo, char* out_fifo) {
+  printf("\n***chat session opened***\n");
+  printf("     welcome %s\n", username);
 
   // fork a child process for writing to the server
   // the parent process will read from the server
@@ -260,7 +250,7 @@ int client_poll(char* username, char* in_fifo, char* out_fifo) {
     return -1;
   }
 
-  if(pid == 0) { // writing
+  if(pid == 0) { // write process
     int fd, nwrote;
     char cmd_buf[BUFMAX];
     char write_buf[BUFMAX];
@@ -302,10 +292,6 @@ int client_poll(char* username, char* in_fifo, char* out_fifo) {
 
         DEBUG_PRINT(("[debug] chat sesh: writing '%s' to %s\n", write_buf, in_fifo));
 
-        /* if((nwrote = write_fifo(in_fifo, write_buf, strlen(write_buf))) != strlen(write_buf)) { */
-        /*   // notify user that message did not go through to server */
-        /*   printf("\n*[oops! an error occured when sending your message.\nplease try again...]*\n\n"); */
-
         if((nwrote = write(fd, write_buf, strlen(write_buf))) != strlen(write_buf)) {
           // notify user that message did not go through to server
           printf("\n*[oops! an error occured when sending your message.\nplease try again...]*\n\n");
@@ -315,10 +301,6 @@ int client_poll(char* username, char* in_fifo, char* out_fifo) {
 
       //terminate chat session
       else if(strcmp(cmd, "close") == 0) {
-        /* if((nwrote = write_fifo(in_fifo, write_buf, strlen(write_buf))) != strlen(write_buf)) { */
-        /*   // hendle error */
-        /* } */
-
         if((nwrote = write(fd, write_buf, strlen(write_buf))) != strlen(write_buf)) {
           perror("write error");
         }
@@ -360,7 +342,6 @@ int client_poll(char* username, char* in_fifo, char* out_fifo) {
         DEBUG_PRINT(("[debug] chat sesh: exiting read process...\n"));
         DEBUG_PRINT(("[debug]exit status was %d\n", WEXITSTATUS(status)));
 
-        printf("goodbye %s", username);
         if(WEXITSTATUS(status) == 1) {
           return 1;
         }
@@ -385,6 +366,7 @@ int client_poll(char* username, char* in_fifo, char* out_fifo) {
   }
 }
 
+/// Client process handling outside of a chat session
 int begin_client(const char* name) {
   int i, fd, nread, nwrote;
   char cmd_buf[BUFMAX];
@@ -411,6 +393,7 @@ int begin_client(const char* name) {
     // extract user command
     cmd = strtok(cmd_buf, ", \n");
 
+    // attempt to open a chat session for this client
     if(strcmp(cmd,"open") == 0) {
 
       // check for an unlocked inFIFO
@@ -428,10 +411,6 @@ int begin_client(const char* name) {
         }
 
         else {
-          /* // lock the fifo to the client process */
-          /* lockf(fd, F_LOCK, BUFMAX); */
-          /* printf("FIFO [%s] has been successfully locked by PID %d\n", in_fifo, getpid()); */
-
           // if username not specified, give the user a default username
           if((username = strtok(NULL, "")) == NULL) {
             char buf[10];
@@ -451,15 +430,12 @@ int begin_client(const char* name) {
           DEBUG_PRINT(("[debug] client: writing '%s' to inFIFO[%d] to notify server\n", msg, i));
 
           // write message to infifo
-          /* if((nwrote = write_fifo(in_fifo, msg, strlen(msg))) != strlen(msg)) { */
-          /*   /1* lockf(fd, F_ULOCK, BUFMAX); *1/ */
-          /*   break; */
-          /* } */
           if((nwrote = write(fd, msg, strlen(msg))) != strlen(msg)) {
-            /* lockf(fd, F_ULOCK, BUFMAX); */
+            if(errno == EPIPE)
+              printf("GOT YA BITCH\n");
+            printf("write error. could not connect to server. please try again...\n");
             break;
           }
-
           close(fd);
 
           DEBUG_PRINT(("[debug] client: wrote '%s' (%d bytes) to inFIFO[%d]\n", msg, nwrote, i));
@@ -470,16 +446,17 @@ int begin_client(const char* name) {
           // due to server timing not always being perfectly in sync
           // with the client, read errors may occur
           if((nread = read_fifo(out_fifo, msg, sizeof(msg))) < 0) {
-            printf("unexpected server error. please try again...\n");
-            /* lockf(fd, F_ULOCK, BUFMAX); */
-            /* printf("FIFO [%s] unlocked by PID %d\n", in_fifo, getpid()); */
+            printf("unexpected read error. please try again...\n");
             break;
           }
           if(nread == 0) {
-            printf("server not responding. please try again...\n");
-            /* lockf(fd, F_ULOCK, BUFMAX); */
-            /* printf("FIFO [%s] unlocked by PID %d\n", in_fifo, getpid()); */
-            break;
+            printf("read error. server not responding. please wait...\n");
+            // allow time for server to read message
+            sleep(1);
+            if((nread = read_fifo(out_fifo, msg, sizeof(msg))) <= 0) {
+              printf("unexpected read error. please try again...\n");
+              break;
+            }
           }
 
           // dump server response
@@ -489,10 +466,10 @@ int begin_client(const char* name) {
           // 1 = exit
           // -1 = err
           int ret;
-          ret = client_poll(username, in_fifo, out_fifo);
+          ret = client_chat(username, in_fifo, out_fifo);
 
           // unlock fifo
-          /* lockf(fd, F_ULOCK, BUFMAX); */
+          printf("\n    goodbye %s", username);
           printf("***chat session closed***\n\n");
           printf("FIFO [%s] unlocked by PID %d\n", in_fifo, getpid());
 
@@ -528,12 +505,12 @@ int begin_client(const char* name) {
 }
 
 int main(int argc, const char* argv[]) {
-  if(argc < 2 || argc > 4) // at least 2 args, max 4 args
+  // check for at least 2 args, max 4 args
+  if(argc < 2 || argc > 4)
     return usage();
-  // get baseName and create inFIFOs and outFIFOs
   const char* baseName = argv[2];
   if((strcmp(argv[1], "-s") == 0) && argc == 4) { // server
-    // number of clients
+    // check if num of clients is valid
     int nclient;
     if((isdigit(argv[3]) == -1) || (nclient = atoi(argv[3])) > NMAX) {
       printf("Error: invalid nclient\n");
