@@ -8,11 +8,11 @@ all: a2rchat
 
 tar: submit
 
-a1shell:
+a2rchat:
 	@$(CC) $(TARGET).c $(CFLAGS) -o $(TARGET)
 
 submit:
-	@mkdir submit && cp $(TARGET).c submit && cp Makefile submit && cp ProjectReport.pdf submit && tar -cf submit.tar submit && rm -rf submit
+	@mkdir submit && cp $(TARGET).c submit && cp Makefile submit && cp ar2answers.pdf submit && cp readme submit && tar -cf submit.tar submit && rm -rf submit
 
 clean:
-	@rm -rf a2chat && rm -rf submit*
+	@rm -rf a2rchat && rm -rf submit*; find . -maxdepth 1 -type p -delete
