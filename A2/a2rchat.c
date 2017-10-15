@@ -15,6 +15,7 @@
 
 
 /* #define DEBUG */
+#define DEBUG
 
 #ifdef DEBUG
 # define DEBUG_PRINT(x) printf x
@@ -74,12 +75,15 @@ int read_fifo(const char* fifo, char* msg, size_t size) {
   FD_ZERO(&readfds);
   FD_SET(fd, &readfds);
   tv.tv_sec = 0; // seconds
-  tv.tv_usec = 500000; // microseconds
+  tv.tv_usec = 250000; // microseconds
   if((select_ret = select(fd+1, &readfds, NULL, NULL, &tv)) == -1) {
     perror("select error");
+    close(fd);
     return -1;
   }
   else if(select_ret == 0) {
+    DEBUG_PRINT(("[debug] read_fifo: nothing to read\n"));
+    close(fd);
     return 0;
   }
   if((nread = read(fd, msg, size)) == -1)
@@ -94,8 +98,13 @@ int read_fifo(const char* fifo, char* msg, size_t size) {
 int write_fifo(const char* fifo, char* msg, size_t size) {
   int fd, nwrote;
   fd = open(fifo, O_WRONLY | O_NONBLOCK);
-  if((nwrote = write(fd, msg, size)) != size)
-    perror("Write Error");
+  if((nwrote = write(fd, msg, size)) != size) {
+    perror("write error");
+    fd = open(fifo, O_WRONLY | O_NONBLOCK);
+    if((nwrote = write(fd, msg, size)) != size) {
+      perror("write error AGAIN");
+    }
+  }
   close(fd);
   DEBUG_PRINT(("[debug] write_fifo: wrote %d bytes\n", nwrote));
   return nwrote;
@@ -106,7 +115,8 @@ int begin_server(const char* name, int nclients) {
   printf("Chat server begins [nclient = %d]\n", nclients);
   pid_t pid;
   pid = fork();
-  if(pid == 0) { // stdin poll
+
+  if(pid == 0) { 
     char cmd[BUFMAX];
     while(1) {
       // poll stdin
@@ -315,9 +325,6 @@ int client_chat(char* username, char* in_fifo, char* out_fifo) {
 
       // terminate chat session and client process
       else if(strcmp(cmd, "exit") == 0) {
-        /* if((nwrote = write_fifo(in_fifo, write_buf, strlen(write_buf))) != strlen(write_buf)) { */
-        /*   // hendle error */
-        /* } */
 
         if((nwrote = write(fd, write_buf, strlen(write_buf))) != strlen(write_buf)) {
           perror("write error");
@@ -431,8 +438,6 @@ int begin_client(const char* name) {
 
           // write message to infifo
           if((nwrote = write(fd, msg, strlen(msg))) != strlen(msg)) {
-            if(errno == EPIPE)
-              printf("GOT YA BITCH\n");
             printf("write error. could not connect to server. please try again...\n");
             break;
           }
