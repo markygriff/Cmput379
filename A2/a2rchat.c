@@ -15,7 +15,6 @@
 
 
 /* #define DEBUG */
-#define DEBUG
 
 #ifdef DEBUG
 # define DEBUG_PRINT(x) printf x
@@ -65,58 +64,13 @@ void create_fifos(const char* name, int num) {
   }
 }
 
-/// Helper read function
-/// * only to be used with outfifos *
-int read_fifo(const char* fifo, char* msg, size_t size) {
-  int fd, select_ret, nread;
-  fd_set readfds;
-  struct timeval tv;
-  fd = open(fifo, O_RDONLY | O_NONBLOCK);
-  FD_ZERO(&readfds);
-  FD_SET(fd, &readfds);
-  tv.tv_sec = 0; // seconds
-  tv.tv_usec = 250000; // microseconds
-  if((select_ret = select(fd+1, &readfds, NULL, NULL, &tv)) == -1) {
-    perror("select error");
-    close(fd);
-    return -1;
-  }
-  else if(select_ret == 0) {
-    DEBUG_PRINT(("[debug] read_fifo: nothing to read\n"));
-    close(fd);
-    return 0;
-  }
-  if((nread = read(fd, msg, size)) == -1)
-    perror("read error");
-  close(fd);
-  DEBUG_PRINT(("[debug] read_fifo: read %d bytes\n", nread));
-  return nread;
-}
-
-/// Helper write funciton
-/// * only to be used with outfifos *
-int write_fifo(const char* fifo, char* msg, size_t size) {
-  int fd, nwrote;
-  fd = open(fifo, O_WRONLY | O_NONBLOCK);
-  if((nwrote = write(fd, msg, size)) != size) {
-    perror("write error");
-    fd = open(fifo, O_WRONLY | O_NONBLOCK);
-    if((nwrote = write(fd, msg, size)) != size) {
-      perror("write error AGAIN");
-    }
-  }
-  close(fd);
-  DEBUG_PRINT(("[debug] write_fifo: wrote %d bytes\n", nwrote));
-  return nwrote;
-}
-
 /// Function to handle server reading and writing
 int begin_server(const char* name, int nclients) {
   printf("Chat server begins [nclient = %d]\n", nclients);
   pid_t pid;
   pid = fork();
 
-  if(pid == 0) { 
+  if(pid == 0) {
     char cmd[BUFMAX];
     while(1) {
       // poll stdin
@@ -170,37 +124,47 @@ int begin_server(const char* name, int nclients) {
 
         // check if the infifo has data to read
         if((select_ret = select(fd+1, &readfds, NULL, NULL, &tv)) == -1) {
+          close(fd);
           perror("select error");
           continue;
         }
         // nothing to read
-        else if(select_ret == 0)
+        else if(select_ret == 0) {
+          close(fd);
           continue;
+        }
 
         // read from the infifo
         if ((nread = read(fd, in_msg, sizeof(in_msg))) < 0) {
           // a read error here should not cause the server to fail
+          close(fd);
           continue;
         }
-        else if(nread == 0)
+        else if(nread == 0) {
+          close(fd);
           continue;
+        }
 
         // read some data
         else if(nread > 0) {
+          close(fd);
+
           DEBUG_PRINT(("[debug] server: read '%s' (%d bytes) from '%s'\n", in_msg, nread, in_fifo));
 
           // NOTE: client message format: [return fifo, command, arguments]
 
           // disect client message into write message
-          return_fifos[i] = strtok(in_msg, ", \n"); // fifo-i.out
+          return_fifos[i] = strtok(in_msg, ", \n");
+
           DEBUG_PRINT(("[debug] server: return_fifo is '%s'\n", return_fifos[i]));
 
-          cmd = strtok(NULL, ", \n"); // command
+          // command
+          cmd = strtok(NULL, ", \n");
           DEBUG_PRINT(("[debug] server: cmd: '%s'\n", cmd));
 
-          if((args = strtok(NULL, "\n")) == NULL) { // arguments
+          // arguments
+          if((args = strtok(NULL, "\n")) == NULL)
             args = "";
-          }
 
           // first time connecting
           // add user to list of users
@@ -223,17 +187,14 @@ int begin_server(const char* name, int nclients) {
           }
 
           // else, unsupported command. Do nothing
-          else {
+          else
             continue;
-            /* strcat(cmd, " "); */
-            /* strcat(cmd, args); */
-            /* strcpy(out_msg, cmd); */
-          }
 
           DEBUG_PRINT(("[debug] server: writing '%s' to %s\n", out_msg, return_fifos[i]));
 
-          // write message to return fifo
-          if((nwrote = write_fifo(return_fifos[i], out_msg, strlen(out_msg))) != strlen(out_msg)) {
+          // open return fifo and write message
+          fd = open(return_fifos[i], O_WRONLY | O_NONBLOCK);
+          if((nwrote = write(fd, out_msg, strlen(out_msg))) != strlen(out_msg)) {
             // handle error
             break;
           }
@@ -339,25 +300,29 @@ int client_chat(char* username, char* in_fifo, char* out_fifo) {
       }
     }
   }
-  else { // read process
-    int nread, status;
+  else { // simple read process
+    int fd, nread, status;
     char read_buf[BUFMAX];
+
+    fd = open(out_fifo, O_RDONLY | O_NONBLOCK);
 
     while(1) {
 
       if(waitpid(pid, &status, WNOHANG) == pid) {
         DEBUG_PRINT(("[debug] chat sesh: exiting read process...\n"));
         DEBUG_PRINT(("[debug]exit status was %d\n", WEXITSTATUS(status)));
-
-        if(WEXITSTATUS(status) == 1) {
+        // return 1 if we are to terminate the client
+        close(fd);
+        if(WEXITSTATUS(status) == 1)
           return 1;
-        }
+        else
         return 0;
       }
 
       memset(read_buf, 0, sizeof(read_buf));
-      if((nread = read_fifo(out_fifo, read_buf, sizeof(read_buf))) == -1) {
+      if((nread = read(fd, read_buf, sizeof(read_buf))) == -1) {
         // handle error
+        DEBUG_PRINT(("[debug] client: read error\n"));
         continue;
       }
 
@@ -447,10 +412,14 @@ int begin_client(const char* name) {
 
           memset(msg, 0, sizeof(msg));
 
+          // we want to block this read open to make
+          // sure the server has it open for write
+          fd = open(out_fifo, O_RDONLY);
+
           // read server message
           // due to server timing not always being perfectly in sync
           // with the client, read errors may occur
-          if((nread = read_fifo(out_fifo, msg, sizeof(msg))) < 0) {
+          if((nread = read(fd, msg, sizeof(msg))) < 0) {
             printf("unexpected read error. please try again...\n");
             break;
           }
@@ -458,7 +427,7 @@ int begin_client(const char* name) {
             printf("read error. server not responding. please wait...\n");
             // allow time for server to read message
             sleep(1);
-            if((nread = read_fifo(out_fifo, msg, sizeof(msg))) <= 0) {
+            if((nread = read(fd, msg, sizeof(msg))) <= 0) {
               printf("error connecting with server...\n");
               break;
             }
@@ -466,6 +435,7 @@ int begin_client(const char* name) {
 
           // dump server response
           printf("%s\n", msg);
+          close(fd);
 
           // 0 = close
           // 1 = exit
@@ -473,7 +443,6 @@ int begin_client(const char* name) {
           int ret;
           ret = client_chat(username, in_fifo, out_fifo);
 
-          // unlock fifo
           printf("\n    goodbye %s", username);
           printf("***chat session closed***\n\n");
           printf("FIFO [%s] unlocked by PID %d\n", in_fifo, getpid());

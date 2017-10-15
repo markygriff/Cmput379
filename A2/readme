@@ -1,21 +1,12 @@
 Mark Griffith - 1422270
 
+
 Project Status:
+
 Currently, my a2rchat program has all of the functionality
 specified in the assignment outline for phase 1 of assignment 2.
 
-There is a rare bug where the client cannot spawn a
-chat session when using 'open'. This happens RARELY and is caused
-by a write error from the client to server. This write error
-occurs when the server does not have the infifo open for read.
-The server has a timeout of 0.25 seconds on each read so there
-is a small delay (larger delay the more clients there are)
-between each subsequent read of each infifo. For this reason, I
-have chosen not to terminate on this specific write error and
-to instead, give the server a second to read and respond. After
-this change, I HAVE NOT SEEN THE ISSUE REAPPEAR. However, I did
-add a safety net so if the read error persists, the user is
-told that there is an error with the server.
+There are no current bugs to report.
 
 
 
@@ -24,21 +15,22 @@ Client: ./a2rchat -c fifo-name
 - The clients have the ability to open a chat session. Any chat message
   sent to the chat session is echoed back by the server of the chat
   session.
--
-
+- The in-fifo is locked by the client when the chat session starts
+  and is unlocked (closed) when the chat session ends.
+- The chat session is composed of a read process and a write process.
 
 
 Server: ./a2rchat -s fifo-name nclients
 
 - The server can read from the in fifos and write to the accompanying out fifos.
-- Spawns a child process for polling the stdin (for the exit command) using 'fgets'
+- It spawns a child process for polling the stdin (for the exit command) using 'fgets'
 - Uses a custom struct to keep track of client usernames and if they are connected
   to a chat session
 
 
 
 Some things to note:
-  - The creation of fifos is done within a function called create_fifos
+  - The creation of fifos is done within a function called create_fifos()
   - If there is no server present, the client cannot open a chat session.
   - The creation of the fifos is handled by the server
   - The deletion of fifos is handled by the 'make clean' command of the Makefile
@@ -47,7 +39,5 @@ Some things to note:
   - I am using the NONBLOCK flag for all opens. This is because the server must
     be reading through 'nclient' number of fifos and shouldn't be blocked on
     one.
-  - The server has a timeout = 0.25 seconds on all of its reads.
-  - I have created helper functions to read and write to a specific
-    fifo. Please note that these are only used for out-fifos because
-    the in-fifos will be locked by a client process.
+  - The server has a timeout = 0.25 seconds on all of its select() calls.
+  - There is a debug print macro that is activated by defining 'DEBUG'.
