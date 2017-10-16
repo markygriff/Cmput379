@@ -239,7 +239,7 @@ int client_chat(char* username, char* in_fifo, char* out_fifo) {
 
     while(1) {
       // sleep to allow time for server response
-      sleep(1);
+      usleep(150000);
 
       memset(cmd_buf, 0, sizeof(cmd_buf));
       memset(write_buf, 0, sizeof(write_buf));
