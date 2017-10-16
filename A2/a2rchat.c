@@ -120,7 +120,8 @@ int begin_server(const char* name, int nclients) {
         FD_ZERO(&readfds);
         FD_SET(fd, &readfds);
         tv.tv_sec = 0; // seconds
-        tv.tv_usec = 250000; // microseconds
+        /* tv.tv_usec = 250000; // microseconds */
+        tv.tv_usec = 1; // microseconds
 
         // check if the infifo has data to read
         if((select_ret = select(fd+1, &readfds, NULL, NULL, &tv)) == -1) {
@@ -130,6 +131,7 @@ int begin_server(const char* name, int nclients) {
         }
         // nothing to read
         else if(select_ret == 0) {
+          DEBUG_PRINT(("[debug] server: nothing to read\n"));
           close(fd);
           continue;
         }
@@ -209,8 +211,6 @@ int begin_server(const char* name, int nclients) {
 /// Spawns two processes: read and write
 /// Returns: -1 on err, 1 on exit, 0 on close
 int client_chat(char* username, char* in_fifo, char* out_fifo) {
-  printf("\n***chat session opened***\n");
-  printf("     welcome %s\n", username);
 
   // fork a child process for writing to the server
   // the parent process will read from the server
@@ -231,7 +231,11 @@ int client_chat(char* username, char* in_fifo, char* out_fifo) {
     // lock the fifo to the client process
     fd = open(in_fifo, O_WRONLY | O_NONBLOCK);
     lockf(fd, F_LOCK, BUFMAX);
+
     printf("FIFO [%s] has been successfully locked by PID %d\n", in_fifo, getpid());
+
+    printf("\n***chat session opened***\n");
+    printf("     welcome %s\n", username);
 
     while(1) {
       // sleep to allow time for server response
@@ -265,7 +269,7 @@ int client_chat(char* username, char* in_fifo, char* out_fifo) {
 
         if((nwrote = write(fd, write_buf, strlen(write_buf))) != strlen(write_buf)) {
           // notify user that message did not go through to server
-          printf("\n*[oops! an error occured when sending your message.\nplease try again...]*\n\n");
+          printf("\n*[oops! an error occured when sending your message. please try again...]*\n\n");
           continue;
         }
       }
@@ -280,7 +284,6 @@ int client_chat(char* username, char* in_fifo, char* out_fifo) {
 
         lockf(fd, F_ULOCK, BUFMAX);
         close(fd);
-        printf("FIFO [%s] unlocked by PID %d\n", in_fifo, getpid());
         _Exit(0);
       }
 
@@ -295,7 +298,6 @@ int client_chat(char* username, char* in_fifo, char* out_fifo) {
 
         lockf(fd, F_ULOCK, BUFMAX);
         close(fd);
-        printf("FIFO [%s] unlocked by PID %d\n", in_fifo, getpid());
         _Exit(1);
       }
     }
@@ -321,8 +323,7 @@ int client_chat(char* username, char* in_fifo, char* out_fifo) {
 
       memset(read_buf, 0, sizeof(read_buf));
       if((nread = read(fd, read_buf, sizeof(read_buf))) == -1) {
-        // handle error
-        DEBUG_PRINT(("[debug] client: read error\n"));
+        /* DEBUG_PRINT(("[debug] client: read error\n")); */
         continue;
       }
 
@@ -406,7 +407,10 @@ int begin_client(const char* name) {
             printf("write error. could not connect to server. please try again...\n");
             break;
           }
-          close(fd);
+
+          // NOTE: Don't close the in-fifo that we just wrote to immediately!
+          //       The server might not have read the message yet
+          //       so if the fd is closed, it will never read it.
 
           DEBUG_PRINT(("[debug] client: wrote '%s' (%d bytes) to inFIFO[%d]\n", msg, nwrote, i));
 
@@ -445,7 +449,7 @@ int begin_client(const char* name) {
 
           printf("\n    goodbye %s", username);
           printf("***chat session closed***\n\n");
-          printf("FIFO [%s] unlocked by PID %d\n", in_fifo, getpid());
+          printf("FIFO [%s] unlocked by PID %d\n\n", in_fifo, getpid());
 
           if(ret == 0)
             break;
@@ -478,14 +482,17 @@ int begin_client(const char* name) {
   return 0;
 }
 
+/// Processes input arguments
 int main(int argc, const char* argv[]) {
   // check for at least 2 args, max 4 args
   if(argc < 2 || argc > 4)
     return usage();
+
   const char* baseName = argv[2];
   if((strcmp(argv[1], "-s") == 0) && argc == 4) { // server
-    // check if num of clients is valid
     int nclient;
+
+    // check if num of clients is valid
     if((isdigit(argv[3]) == -1) || (nclient = atoi(argv[3])) > NMAX) {
       printf("Error: invalid nclient\n");
       return usage();
@@ -493,8 +500,10 @@ int main(int argc, const char* argv[]) {
     else
       return begin_server(baseName, nclient);
   }
+
   else if((strcmp(argv[1], "-c") == 0) && argc == 3) // client
     return begin_client(baseName);
+
   else
     return usage();
 

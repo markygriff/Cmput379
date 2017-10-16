@@ -10,6 +10,7 @@ There are no current bugs to report.
 
 
 
+
 Client: ./a2rchat -c fifo-name
 
 - The clients have the ability to open a chat session. Any chat message
@@ -18,6 +19,8 @@ Client: ./a2rchat -c fifo-name
 - The in-fifo is locked by the client when the chat session starts
   and is unlocked (closed) when the chat session ends.
 - The chat session is composed of a read process and a write process.
+- Terminated by typing 'exit'.
+
 
 
 Server: ./a2rchat -s fifo-name nclients
@@ -26,6 +29,11 @@ Server: ./a2rchat -s fifo-name nclients
 - It spawns a child process for polling the stdin (for the exit command) using 'fgets'
 - Uses a custom struct to keep track of client usernames and if they are connected
   to a chat session
+- I am using the NONBLOCK flag for server RDONLY opens. This is because the server
+  must check each in-fifo for incoming data to read and being blocked on one read
+  would mean the server couldn't read the other in-fifos. The select command
+  is used to check each fifo for data before reading.
+- Terminated by typing 'exit'.
 
 
 
@@ -36,8 +44,5 @@ Some things to note:
   - The deletion of fifos is handled by the 'make clean' command of the Makefile
   - The maximum buffer size is defined at the top of the file. Currently, it
     is set to 1024.
-  - I am using the NONBLOCK flag for all opens. This is because the server must
-    be reading through 'nclient' number of fifos and shouldn't be blocked on
-    one.
   - The server has a timeout = 0.25 seconds on all of its select() calls.
   - There is a debug print macro that is activated by defining 'DEBUG'.
