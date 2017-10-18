@@ -14,9 +14,11 @@
 of a named pipe (FIFO) on the file system. Using
 ls -lh or du -sh will show the file size as 0B,
 even as it is being continually written to by
-a process. One method of monitoring the traffic
-between the two processes would be to trace one
-of them (see strace or ptrace). \\
+a process. This is because data written to a fifo is
+passed through the kernel without writing to the filesystem.
+One method of monitoring the traffic between the
+two processes would be to trace one of them (see
+strace or ptrace). \\
 
 \noindent
 \textbf{2.} No. For processes to communicate via
@@ -29,13 +31,13 @@ you need to use sockets. \\
 
 \noindent
 \textbf{3.} When B attempts to open the FIFO,
-it is not blocked. The open (for B) wi=ould be blocked if the
+it is not blocked. The open (for B) would be blocked if the
 file were not opened for write by process A.\\
 
 \noindent
 \textbf{4.} Yes. Process B can detect that
 process A is locked while A is waiting for
-user input. B can use 'lockf(fd, T\_TEST, bytes)'
+user input. B can use 'lockf(fd, F\_TEST, bytes)'
 to test if there is a lock on the FIFO. \\
 
 \noindent
@@ -54,6 +56,6 @@ and "apple"
 on the second iteration, we will see the output "applemelon". \\
 
 \noindent
-Testing of each situation above was done by re-creating the
-specified loops on the lab machine.
+* Testing of each situation above was done by re-creating the
+situations on the lab machine.
 \end{document}

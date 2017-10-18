@@ -44,5 +44,7 @@ Some things to note:
   - The deletion of fifos is handled by the 'make clean' command of the Makefile
   - The maximum buffer size is defined at the top of the file. Currently, it
     is set to 1024.
-  - The server has a timeout = 0.25 seconds on all of its select() calls.
+  - The server has a timeout = 0.1 seconds on all of its select() calls.
+  - The client prompt is delayed by .15 seconds every iteration to allow
+    time for the server to print.
   - There is a debug print macro that is activated by defining 'DEBUG'.
