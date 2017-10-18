@@ -14,7 +14,7 @@
 #include <time.h>
 
 
-#define DEBUG
+/* #define DEBUG */
 
 #ifdef DEBUG
 # define DEBUG_PRINT(x) printf x
@@ -32,8 +32,6 @@ typedef int bool;
 typedef struct client_map {
   bool connected;
   int chatters;
-  /* char return_fifo[BUFMAX]; */
-  /* int return_fifos[NMAX]; */
   char user[BUFMAX];
   char* return_fifos[NMAX];
 } client_map_t, *client_map_p;
@@ -184,9 +182,6 @@ int begin_server(const char* name, int nclients) {
 
           DEBUG_PRINT(("[debug] server: return_fifo is '%s'\n", clients[i].return_fifos[0]));
 
-          if(clients[1].connected == true)
-            printf("AFT   CLIENT[0].RETURN_FIFOS[0] '%s' CLIENT[1].RETURN_FIFOS[0] '%s'\n", clients[0].return_fifos[0], clients[1].return_fifos[0]);
-
           // command
           cmd = strtok(NULL, ", \n");
           DEBUG_PRINT(("[debug] server: cmd: '%s'\n", cmd));
@@ -198,10 +193,6 @@ int begin_server(const char* name, int nclients) {
           // first time connecting
           // add user to list of users
           if(strcmp(cmd, "open") == 0 && clients[i].connected == false) {
-
-            // TODO PREVENT CLIENT FROM OPENING CHAT SESSION IF USERNAME
-            //      IS TAKEN
-
             int x;
             int exists = false;
             // check if username is taken by another client
@@ -214,9 +205,12 @@ int begin_server(const char* name, int nclients) {
             }
 
             if(exists == false) {
+              DEBUG_PRINT(("[debug] server: adding user '%s' to clients\n", args));
+              // connect user to clients[i]
               clients[i].connected = true;
               memset(clients[i].user, 0, sizeof(clients[i].user));
               strcpy(clients[i].user, args);
+              // message for client
               sprintf(serv_msg, "[server] User '%s' connected on FIFO %d", args, i+1);
             }
           }
@@ -224,8 +218,7 @@ int begin_server(const char* name, int nclients) {
           // copy message and send to chat
           else if(strcmp(cmd, "<") == 0) {
 
-            sprintf(out_msg, "[%s] %s", clients[i].user, args);
-            sprintf(serv_msg, "[server] done");
+            sprintf(out_msg, "\n[%s] %s", clients[i].user, args);
 
             // write to each out-fifo that is part of the chat session
             for(j=0;j<=clients[i].chatters;j++) {
@@ -238,45 +231,51 @@ int begin_server(const char* name, int nclients) {
 
               if((nwrote = write(fd, out_msg, strlen(out_msg))) != strlen(out_msg)) {
                 // handle error
+                // TODO add error to server message
               }
               close(fd);
             }
+            sprintf(serv_msg, "[server] done");
           }
 
           // add users to senders
           else if(strcmp(cmd, "to") == 0) {
-            // assert that the recipients are current users
-            int added = clients[i].chatters;
-            char* toAdd;
+            char connected_users[BUFMAX] = "";
 
-            printf("ADDED START :: '%d'\n", added);
-
-            for(j=0;j<nclients;j++) {
+            // assert that the recipients are connected users
+            for(j=0;j<nclients;j++) { // TODO while(strcmp(args, "") != 0))
 
               DEBUG_PRINT(("[debug] server: checking '%s' for '%s'...\n", args, clients[j].user));
 
               // if client is connected and recipeint list includes client username...
-              // 1. add the client's return_fifos[0] to current sender's return_fifos
-              if(clients[j].connected == true) {
-                if((toAdd = strstr(args, clients[j].user) != NULL)) {
-                  DEBUG_PRINT(("[debug] server: adding user %s's return-fifo\n", clients[j].user));
+              // add the client's return_fifos[0] to current sender's return_fifos
+              if(clients[j].connected == true && strstr(args, clients[j].user) != NULL) {
+                DEBUG_PRINT(("[debug] server: adding user %s's return-fifo\n", clients[j].user));
 
-                  added++;
-                  clients[i].return_fifos[added] = clients[j].return_fifos[0];
+                // increment the number of users connected to the chat session
+                clients[i].chatters++;
+                clients[i].return_fifos[clients[i].chatters] = clients[j].return_fifos[0];
 
-                  DEBUG_PRINT(("[debug] server: %s's return_fifos[%d] is now %s\n", clients[i].user, added, clients[j].return_fifos[0]));
+                DEBUG_PRINT(("[debug] server: removing '%s' from args\n", clients[j].user));
 
-                  // TODO Remove clients[j].user from args so we stop searching
-                }
+                // add user to list of connected users
+                strcat(connected_users, clients[j].user);
+
+                // remove user from args. empty args should break the loop
+                remove_substring(args, clients[j].user);
+
+                DEBUG_PRINT(("[debug] server: args -> '%s'\n", args));
+                DEBUG_PRINT(("[debug] server: connected_users -> '%s'\n", connected_users));
+                DEBUG_PRINT(("[debug] server: %s's return_fifos[%d] is now %s\n", clients[i].user, clients[i].chatters, clients[j].return_fifos[0]));
+
+                if(strcmp(args, "") == 0)
+                  break;
               }
             }
 
-            printf("ADDED END :: '%d'\n", added);
-            clients[i].chatters += added;
-
             DEBUG_PRINT(("[debug] server: chatter is now '%d'\n", clients[i].chatters));
 
-            sprintf(serv_msg, "[server] recipients added: %s", args);
+            sprintf(serv_msg, "[server] recipients added: %s", connected_users);
           }
 
           // print who is connected to client[i]'s session
@@ -395,6 +394,9 @@ int client_chat(char* username, char* in_fifo, char* out_fifo) {
           perror("write error");
         }
 
+        // breifly sleep so server can remove user
+        usleep(100000);
+
         DEBUG_PRINT(("[debug] chat sesh: exiting write process...\n"));
 
         lockf(fd, F_ULOCK, BUFMAX);
@@ -408,6 +410,9 @@ int client_chat(char* username, char* in_fifo, char* out_fifo) {
         if((nwrote = write(fd, write_buf, strlen(write_buf))) != strlen(write_buf)) {
           perror("write error");
         }
+
+        // breifly sleep so server can remove user
+        usleep(100000);
 
         DEBUG_PRINT(("[debug] chat sesh: exiting write process...\n"));
 
