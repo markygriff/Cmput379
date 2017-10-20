@@ -10,6 +10,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/file.h>
+#include <sys/resource.h>
 #include <fcntl.h>
 #include <time.h>
 
@@ -119,6 +120,7 @@ int begin_server(const char* name, int nclients) {
 
     while(1) {
 
+      // check if child process is terminated
       for(i=0;i<nclients;i++) {
         if(waitpid(pid, NULL, WNOHANG) == pid)
           return 0;
@@ -260,6 +262,7 @@ int begin_server(const char* name, int nclients) {
 
                 // add user to list of connected users
                 strcat(connected_users, clients[j].user);
+                strcat(connected_users, " ");
 
                 // remove user from args. empty args should break the loop
                 remove_substring(args, clients[j].user);
@@ -280,10 +283,24 @@ int begin_server(const char* name, int nclients) {
 
           // print who is connected to client[i]'s session
           else if(strcmp(cmd, "who") == 0) {
+            sprintf(serv_msg, "[server] Current users:");
 
-            // TODO implement this
+            int x;
+            char user_str[BUFMAX];
+            // find the users connected to clients[i]'s session
+            for(j=0;j<=clients[i].chatters;j++) {
+              for(x=0;x<nclients;x++) { // for each client
+                // check if clients[x] is in clients[i]'s chat session
+                if(clients[i].return_fifos[j] == clients[x].return_fifos[0]) {
+                  DEBUG_PRINT(("[debug] server: catting user %s to server message\n", clients[x].user));
 
-            sprintf(serv_msg, "[server] done");
+                  // add clients[x] to server message
+                  sprintf(user_str, " [%d] %s", j+1, clients[x].user);
+                  strcat(serv_msg, user_str);
+                  break;
+                }
+              }
+            }
           }
 
 
@@ -294,11 +311,12 @@ int begin_server(const char* name, int nclients) {
             // destroy client
             clients[i].connected = false;
 
-            for(int x=0;x<clients[i].chatters;x++)
-              memset(clients[i].return_fifos[x], 0, strlen(clients[i].return_fifos[x]));
+            for(j=0;j<clients[i].chatters;j++)
+              memset(clients[i].return_fifos[j], 0, strlen(clients[i].return_fifos[j]));
 
             clients[i].chatters = 0;
             memset(clients[i].user, 0, strlen(clients[i].user));
+
             sprintf(serv_msg, "[server] done");
           }
 
@@ -358,6 +376,7 @@ int client_chat(char* username, char* in_fifo, char* out_fifo) {
       memset(cmd_buf, 0, sizeof(cmd_buf));
       memset(write_buf, 0, sizeof(write_buf));
 
+      // user prompt
       printf("a2chat_client: ");
       fflush(stdout);
 
@@ -389,6 +408,7 @@ int client_chat(char* username, char* in_fifo, char* out_fifo) {
       }
 
       //terminate chat session
+      // exit 0
       else if(strcmp(cmd, "close") == 0) {
         if((nwrote = write(fd, write_buf, strlen(write_buf))) != strlen(write_buf)) {
           perror("write error");
@@ -399,12 +419,14 @@ int client_chat(char* username, char* in_fifo, char* out_fifo) {
 
         DEBUG_PRINT(("[debug] chat sesh: exiting write process...\n"));
 
+        // unlock fifo and close fd
         lockf(fd, F_ULOCK, BUFMAX);
         close(fd);
         _Exit(0);
       }
 
       // terminate chat session and client process
+      // exit 1
       else if(strcmp(cmd, "exit") == 0) {
 
         if((nwrote = write(fd, write_buf, strlen(write_buf))) != strlen(write_buf)) {
@@ -416,6 +438,7 @@ int client_chat(char* username, char* in_fifo, char* out_fifo) {
 
         DEBUG_PRINT(("[debug] chat sesh: exiting write process...\n"));
 
+        // unlock fifo and close fd
         lockf(fd, F_ULOCK, BUFMAX);
         close(fd);
         _Exit(1);
@@ -426,6 +449,8 @@ int client_chat(char* username, char* in_fifo, char* out_fifo) {
     int fd, nread, status;
     char read_buf[BUFMAX];
 
+    // we want to read from our out-fifo for incoming
+    // server messages
     fd = open(out_fifo, O_RDONLY | O_NONBLOCK);
 
     while(1) {
@@ -433,17 +458,18 @@ int client_chat(char* username, char* in_fifo, char* out_fifo) {
       if(waitpid(pid, &status, WNOHANG) == pid) {
         DEBUG_PRINT(("[debug] chat sesh: exiting read process...\n"));
         DEBUG_PRINT(("[debug]exit status was %d\n", WEXITSTATUS(status)));
+
         // return 1 if we are to terminate the client
         close(fd);
         if(WEXITSTATUS(status) == 1)
           return 1;
+
         else
         return 0;
       }
 
       memset(read_buf, 0, sizeof(read_buf));
       if((nread = read(fd, read_buf, sizeof(read_buf))) == -1) {
-        /* DEBUG_PRINT(("[debug] client: read error\n")); */
         continue;
       }
 
@@ -452,9 +478,19 @@ int client_chat(char* username, char* in_fifo, char* out_fifo) {
         continue;
       }
 
-      // echo to stdout
-      else
+      // echo incoming message to stdout
+      else {
         printf("%s\n", read_buf);
+
+        char buf[BUFMAX] = "\n[";
+        strcat(buf, username);
+        // if the message is not from this user or the server
+        // re-display the user prompt
+        if((strncmp(read_buf, "[server]", 8) != 0) && (strncmp(read_buf, buf, strlen(buf)-1) != 0)) {
+          printf("a2chat_client: ");
+          fflush(stdout);
+        }
+      }
     }
   }
 }
@@ -591,7 +627,7 @@ int begin_client(const char* name) {
       }
     }
 
-    if(strcmp(cmd, "<") == 0) {
+    if((strcmp(cmd, "<") == 0) || (strcmp(cmd, "to") == 0) || (strcmp(cmd, "who") == 0)) {
       printf("You are not connected to a chat session!\n");
     }
 
@@ -613,6 +649,13 @@ int main(int argc, const char* argv[]) {
   // check for at least 2 args, max 4 args
   if(argc < 2 || argc > 4)
     return usage();
+
+  // set a limit on CPU time (e.g. 10 minutes)
+  struct rlimit cpu_lim = {600, 600};
+  if(setrlimit(RLIMIT_CPU, &cpu_lim) == -1) {
+    perror("setrlimit: failed\nError ");
+    return -1;
+   }
 
   const char* baseName = argv[2];
   if((strcmp(argv[1], "-s") == 0) && argc == 4) { // server
