@@ -16,6 +16,7 @@ communication. It was also a valuable experience for learning
 about the usefullness of file locking to restrict access to FIFOs.
 
 \section{Design Overview}
+
 \textbf{Program File:} a2chat.c \\
 \textbf{Executable:} a2chat \\
 \textbf{Function Returns:} 0 on success and -1 on failure. \\
@@ -35,6 +36,9 @@ on the command line argument. \\
 are created. This is purely a style choice and functions the same as \_exit()} \\
 
 \noindent
+\textbf{remove\_subsring()}: simple helper function to remove a substring. \\
+
+\noindent
 \textbf{server}: ./a2chat -s fifo-name nclients \\
 - Creates the fifos to be used for communication \\
 - Reads from each in-fifo sequentially in a loop. \\
@@ -44,13 +48,32 @@ in each in-fifo (timeout=1 us) \\
 of clients and their chat sessions. \\
 - Assumes the first string of the client's 'open username'
 message is the return fifo (out-fifo) for that client. \\
+- Upon recieving the 'to' command from a client, appends
+clients to the client's list of recipients. \\
+
+\noindent
+I designed the server such that if a read of write failure
+occurs, the server remains active (does not terminate).
+The user is instead notified that there was an issue with
+the server. I feel this is a more realistic approach to
+handling the read/write error because there is a good
+chance the error had occured due to a faulty client
+program, and so the server should remain in a stable state. \\
 
 \noindent
 \textbf{client}: ./a2chat -c fifo-name \\
+- Clients are controlled using two functions...
+
+\begin{itemize}
+  \item \textbf{ begin\_client() }:
+  \item \textbf{ client\_chat() }:
+\end{itemize}
+
+\noindent
 - Assumes if there is a server error, the response
 message will begin with "[server] error:"\\
-- \\
-- \\
+- Locks a fifo for writing (in-fifo) when chat session
+starts. \\
 - The client opens a chat session will always
 belong to that chat session i.e. the client
 who opened the session will recieve the messages
@@ -61,7 +84,20 @@ it sends to the other clients. \\
 from stdin in both the server and client chat sessions. This
 design choice was to keep code seperated and clean so to
 prevent or isolate buggy behavior. As well, it allows the
-user to exit either session seamlessly.}
+user to exit either session seamlessly.} \\
+
+\noindent
+\textbf{ Some things to note: } \\
+  - The creation of fifos is done within a function called create\_fifos() \\
+  - If there is no server present, the client cannot open a chat session. \\
+  - The creation of the fifos is handled by the server \\
+  - The deletion of fifos is handled by the 'make clean' command of the Makefile \\
+  - The maximum buffer size is defined at the top of the file. Currently, it
+    is set to 1024. \\
+  - The server has a timeout = 0.1 seconds on all of its select() calls. \\
+  - The client prompt is delayed by .15 seconds every iteration to allow
+    time for the server to print. \\
+  - There is a debug print macro that is activated by defining 'DEBUG'.
 
 \section{Project Status}
 This project currently implements all functionalities outlined in the
@@ -72,9 +108,7 @@ Some difficulity in the implementation of this
 assignment came from finding legitimate ways of testing the several
 functionalites of the code. Fortunately, I found that testing gave me the
 oppurtunity to learn and better my understanding of the various system calls
-necessary for the completion of this assignment. \\
-
-\noindent
+necessary for the completion of this assignment.
 Other difficulties included finding a means of tracking clients
 and their chat sessions. I came up with the idea of storing client
 info inside a struct to simplify this issue.
@@ -92,9 +126,7 @@ Testing of a single client on a server was done
 relatively simply, with debug printing. I came up
 with unusual input command sequences to attempt to
 break the program and asserted that the program
-continued to function normally. \\
-
-\noindent
+continued to function normally.
 Once I established that a single client session was
 working properly, I moved on to testing multiple clients
 on a single session. \\
@@ -109,10 +141,10 @@ tests such as sending messages, opening and closing
 chat sessions, and extensively using the who and
 to commands.\\
 
-/noindent
-Next, I wanted to cover some more obscure cases
+\noindent
+Next, I wanted to cover some of the more obscure cases
 that might not have been thought about during
-development. Some examples of this included... \\
+development. Some examples of this included...
 
 \begin{itemize}
   \item Opening maximum+1 number of users on server.

@@ -30,6 +30,9 @@ typedef int bool;
 #define NMAX 5
 #define BUFMAX 1024
 
+
+// stores information regarding a
+// client's current chat session
 typedef struct client_map {
   bool connected;
   int chatters;
@@ -67,9 +70,8 @@ void create_fifos(const char* name, int num) {
 }
 
 /// Helper function to remove substring
-void remove_substring(char *str, const char *toRemove)
-{
-  while(str = strstr(str,toRemove)) {
+void remove_substring(char *str, const char *toRemove) {
+  while( (str = strstr(str,toRemove)) ) {
     int len = strlen(toRemove);
     memmove(str, str + len, 1 + strlen(str + len));
   }
@@ -148,7 +150,6 @@ int begin_server(const char* name, int nclients) {
         }
         // nothing to read
         else if(select_ret == 0) {
-          /* DEBUG_PRINT(("[debug] server: nothing to read\n")); */
           close(fd);
           continue;
         }
@@ -175,6 +176,7 @@ int begin_server(const char* name, int nclients) {
 
           char* tok;
           tok = strtok(in_msg, ", \n");
+
           // this is strictly a sanity check.
           // we know that in_msg is not null because of the checks above
           if(NULL != tok)
@@ -197,6 +199,7 @@ int begin_server(const char* name, int nclients) {
           if(strcmp(cmd, "open") == 0 && clients[i].connected == false) {
             int x;
             int exists = false;
+
             // check if username is taken by another client
             for(x=0;x<nclients;x++) {
               if(strcmp(args, clients[x].user) == 0) {
@@ -212,7 +215,8 @@ int begin_server(const char* name, int nclients) {
               clients[i].connected = true;
               memset(clients[i].user, 0, sizeof(clients[i].user));
               strcpy(clients[i].user, args);
-              // message for client
+
+              // create message for client
               sprintf(serv_msg, "[server] User '%s' connected on FIFO %d", args, i+1);
             }
           }
@@ -242,43 +246,51 @@ int begin_server(const char* name, int nclients) {
 
           // add users to senders
           else if(strcmp(cmd, "to") == 0) {
-            char connected_users[BUFMAX] = "";
 
-            // assert that the recipients are connected users
-            for(j=0;j<nclients;j++) { // TODO while(strcmp(args, "") != 0))
+            // assert user is not trying to add itself as a recipient
+            if(strcmp(args, clients[i].user) == 0)
+              sprintf(serv_msg, "[server] error: you cannot add yourself as a recipient.");
 
-              DEBUG_PRINT(("[debug] server: checking '%s' for '%s'...\n", args, clients[j].user));
+            // attempt to find users to add to client's recipients
+            else {
+              char connected_users[BUFMAX] = "";
 
-              // if client is connected and recipeint list includes client username...
-              // add the client's return_fifos[0] to current sender's return_fifos
-              if(clients[j].connected == true && strstr(args, clients[j].user) != NULL) {
-                DEBUG_PRINT(("[debug] server: adding user %s's return-fifo\n", clients[j].user));
+              // assert that the recipients are connected users
+              for(j=0;j<nclients;j++) {
 
-                // increment the number of users connected to the chat session
-                clients[i].chatters++;
-                clients[i].return_fifos[clients[i].chatters] = clients[j].return_fifos[0];
+                DEBUG_PRINT(("[debug] server: checking '%s' for '%s'...\n", args, clients[j].user));
 
-                DEBUG_PRINT(("[debug] server: removing '%s' from args\n", clients[j].user));
+                // if client is connected and recipeint list includes client username...
+                // add the client's return_fifos[0] to current sender's return_fifos
+                if(clients[j].connected == true && strstr(args, clients[j].user) != NULL) {
+                  DEBUG_PRINT(("[debug] server: adding user %s's return-fifo\n", clients[j].user));
 
-                // add user to list of connected users
-                strcat(connected_users, clients[j].user);
-                strcat(connected_users, " ");
+                  // increment the number of users connected to the chat session
+                  clients[i].chatters++;
+                  clients[i].return_fifos[clients[i].chatters] = clients[j].return_fifos[0];
 
-                // remove user from args. empty args should break the loop
-                remove_substring(args, clients[j].user);
+                  DEBUG_PRINT(("[debug] server: removing '%s' from args\n", clients[j].user));
 
-                DEBUG_PRINT(("[debug] server: args -> '%s'\n", args));
-                DEBUG_PRINT(("[debug] server: connected_users -> '%s'\n", connected_users));
-                DEBUG_PRINT(("[debug] server: %s's return_fifos[%d] is now %s\n", clients[i].user, clients[i].chatters, clients[j].return_fifos[0]));
+                  // add user to list of connected users
+                  strcat(connected_users, clients[j].user);
+                  strcat(connected_users, " ");
 
-                if(strcmp(args, "") == 0)
-                  break;
+                  // remove user from args. empty args should break the loop
+                  remove_substring(args, clients[j].user);
+
+                  DEBUG_PRINT(("[debug] server: args -> '%s'\n", args));
+                  DEBUG_PRINT(("[debug] server: connected_users -> '%s'\n", connected_users));
+                  DEBUG_PRINT(("[debug] server: %s's return_fifos[%d] is now %s\n", clients[i].user, clients[i].chatters, clients[j].return_fifos[0]));
+
+                  if(strcmp(args, "") == 0)
+                    break;
+                }
               }
+
+              DEBUG_PRINT(("[debug] server: chatter is now '%d'\n", clients[i].chatters));
+
+              sprintf(serv_msg, "[server] recipients added: %s", connected_users);
             }
-
-            DEBUG_PRINT(("[debug] server: chatter is now '%d'\n", clients[i].chatters));
-
-            sprintf(serv_msg, "[server] recipients added: %s", connected_users);
           }
 
           // print who is connected to client[i]'s session
@@ -303,13 +315,24 @@ int begin_server(const char* name, int nclients) {
             }
           }
 
-
           // close the user's chat session (don't have to notify other users)
           else if((strcmp(cmd, "close") == 0) || (strcmp(cmd, "exit") == 0))  {
             DEBUG_PRINT(("[debug] server: removing user '%s' from clients\n", clients[i].user));
 
-            // destroy client
+            // update clients who have the removed user as a recipient
+            int x;
+            for(j=0;j<nclients;j++) { // clients
+              for(x=0;x<=clients[j].chatters;x++) { // return fifos
+              if(clients[j].return_fifos[x] == clients[i].return_fifos[0]) {
+                memset(clients[j].return_fifos[x], 0, strlen(clients[j].return_fifos[x]));
+                clients[j].chatters--;
+                }
+              }
+            }
+
+            // destroy client user
             clients[i].connected = false;
+
 
             for(j=0;j<clients[i].chatters;j++)
               memset(clients[i].return_fifos[j], 0, strlen(clients[i].return_fifos[j]));
