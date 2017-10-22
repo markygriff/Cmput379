@@ -226,22 +226,22 @@ int begin_server(const char* name, int nclients) {
 
             sprintf(out_msg, "\n[%s] %s", clients[i].user, args);
 
-            // write to each out-fifo that is part of the chat session
+            // write to each recipient's out-fifo that is part of the chat session
             for(j=0;j<=clients[i].chatters;j++) {
-              if(clients[j].connected == false) // shouldn't need this !
+              if(clients[j].connected == false)
                 continue;
 
               fd = open(clients[i].return_fifos[j], O_WRONLY | O_NONBLOCK);
 
               DEBUG_PRINT(("[debug] server: writing out message to user %s -> '%s' to %s\n", clients[j].user, out_msg, clients[j].return_fifos[0]));
 
-              if((nwrote = write(fd, out_msg, strlen(out_msg))) != strlen(out_msg)) {
-                // handle error
-                // TODO add error to server message
-              }
+              if((nwrote = write(fd, out_msg, strlen(out_msg))) != strlen(out_msg))
+                sprintf(serv_msg, "[server] error: failed to send message to a user.");
+
               close(fd);
             }
-            sprintf(serv_msg, "[server] done");
+            if(strncmp(serv_msg, "[server] error:", 15) != 0)
+              sprintf(serv_msg, "[server] done");
           }
 
           // add users to senders
