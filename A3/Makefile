@@ -4,7 +4,7 @@ CFLAGS = -Wall
 
 TARGET = a2chat
 
-all: a2chat
+all: a3
 
 tar: submit
 
