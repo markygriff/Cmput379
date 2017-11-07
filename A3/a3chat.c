@@ -166,13 +166,13 @@ int begin_server(const char* portnumber, int nclients) {
     // TODO put this in project report
     timeout = (5*60*1000);
 
-    while(server_up == false) {
+    do {
       // check if child process is terminated
       if(waitpid(pid, NULL, WNOHANG) == pid)
         return 0;
 
       // call poll and wait
-      /* DEBUG_PRINT(("[debug] waiting on poll()...\n")); */
+      DEBUG_PRINT(("[debug] waiting on poll()...\n"));
       pr = poll(fds, nclients, timeout);
 
       if(pr < 0) {
@@ -204,7 +204,7 @@ int begin_server(const char* portnumber, int nclients) {
         if(fds[i].fd == listen_sd) {
           DEBUG_PRINT(("[debug] listening socket is readable\n"));
 
-          while(comm_sd != -1) {
+           do {
             // accept the incomming connections
             // when accept fails with EWOULDBLOCK that indicates
             // that we have accepted every incoming connection
@@ -216,7 +216,7 @@ int begin_server(const char* portnumber, int nclients) {
                 // TODO handle error
                 server_up = true;
               }
-              DEBUG_PRINT(("accept() errno = EWOULDBLOCK"));
+              DEBUG_PRINT(("accept() errno = EWOULDBLOCK\n"));
               break;
             }
 
@@ -233,17 +233,18 @@ int begin_server(const char* portnumber, int nclients) {
             fds[nlisteners].events = POLLIN;
 
             nlisteners++;
-          }
+          } while(comm_sd != -1);
         }
 
         // not a listening socket, so it is an existing
         // connection
         else {
-          DEBUG_PRINT(("[debug] descriptor %d is now readable\n", fds[i].fd));
+          DEBUG_PRINT(("[debug] descriptor %d (existing connection) is now readable\n", fds[i].fd));
           close_conn = false;
 
           // read incomming data from socket
-          while(1) {
+          do {
+            DEBUG_PRINT(("[debug] reading from descriptor %d\n", fds[i].fd));
             nread = recv(fds[i].fd, in_msg, sizeof(in_msg), 0);
 
             if(nread < 0) {
@@ -262,11 +263,9 @@ int begin_server(const char* portnumber, int nclients) {
               break;
             }
 
-
-
             /**** this is where all the command processing happens ****/
 
-            DEBUG_PRINT(("[debug] server: read '%s' (%d bytes) from ______ \n", in_msg, nread));
+            DEBUG_PRINT(("[debug] server: read '%s' (%d bytes) from descriptor %d \n", in_msg, nread, fds[i].fd));
 
             // get user command
             cmd = strtok(in_msg, ", \n");
@@ -309,6 +308,8 @@ int begin_server(const char* portnumber, int nclients) {
 
             /************************temp****************************/
             // echo message back to client
+            /* strcat(in_msg, args); */
+            DEBUG_PRINT(("[debug] echoing message '%s' back to client\n", in_msg));
             if((nwrote = send(fds[i].fd, in_msg, nread, 0)) < 0) {
               perror("[error] send failed");
               close_conn = true;
@@ -316,7 +317,7 @@ int begin_server(const char* portnumber, int nclients) {
             }
             /***************************************************/
 
-          } // while(1)
+          } while(1);
 
           // clean up connection iff close_conn flag is set
           if(close_conn) {
@@ -340,13 +341,14 @@ int begin_server(const char* portnumber, int nclients) {
         }
       }
 
-    } // while(server_up == false)
+    } while(server_up == false);
 
     // clean up open sockets
     for(i=0;i<nlisteners;i++) {
       if(fds[i].fd >= 0)
         close(fds[i].fd);
     }
+
     return 0;
   } // parent proc
 
@@ -587,12 +589,198 @@ int begin_server(const char* portnumber, int nclients) {
   /* return 0; */
 }
 
+/// Client Chat Session protocol
+/// Spawns a child process for reading from sockfd
+int client_chat(const char* username, const char* portnumber, const char* server_addr) {
+  int status, s, on;
+  int sockfd;
+  int nread, nwrote;
+  char cmd_buf[BUFMAX], read_buf[BUFMAX], write_buf[BUFMAX];
+  char* cmd;
+  char* msg;
+
+  struct hostent* lh;
+  struct in_addr **addr_list;
+  struct sockaddr_in serv;
+
+  DEBUG_PRINT(("[debug] server address input: %s\n", server_addr));
+
+  // resolve server_addr to get server IP
+  if((lh = gethostbyname(server_addr)) == NULL) {
+    printf("Invalid server address.\n");
+    return -1;
+  } // IP = lh.h_addr
+
+  addr_list = (struct in_addr** )lh->h_addr_list;
+
+  printf("lh->h_addr: %s\n", inet_ntoa(*addr_list[0]));
+
+  memset(&serv, 0, sizeof(serv));
+
+  // initialize server params
+  serv.sin_family = AF_INET;
+  serv.sin_port = htons(atoi(portnumber));
+
+  // convert server IP to binary representation
+  /* s = inet_pton(AF_INET, lh->h_addr, &(serv.sin_addr)); */
+  s = inet_pton(AF_INET, inet_ntoa(*addr_list[0]), &(serv.sin_addr));
+  if(s <= 0) {
+    if(s == 0)
+      fprintf(stderr, "server address in incorrect format\n");
+    else
+      perror("inet_pton");
+    return -1;
+  }
+
+  DEBUG_PRINT(("[debug] calling socket()...\n"));
+
+  // get socket fd and attempt connection
+  // TODO protocol ?
+  sockfd = socket(AF_INET, SOCK_STREAM, 0);
+
+  // make socket (and inherited sockets) nonblocking
+  if(ioctl(sockfd, FIONBIO, (char *)&on) < 0) {
+    perror("[error] ioctl");
+    close(sockfd);
+    return -1;
+  }
+
+  // connect with server's accept
+  if(connect(sockfd, (struct sockaddr*)&serv, sizeof(serv)) != 0) {
+    perror("[error] connect");
+    /* printf("could not connect to server. please try again.\n"); */
+  }
+
+  // fork a child process for writing to the server
+  // the parent process will read from the server
+  pid_t pid = fork();
+
+  if(pid < 0) {
+    printf("fork error. exiting...\n\n");
+    return -1;
+  }
+
+  if(pid == 0) { // write process
+
+    while(1) {
+      usleep(100000);
+
+      memset(cmd_buf, 0, sizeof(cmd_buf));
+
+      // user prompt
+      printf("a3chat_client: ");
+      fflush(stdout);
+
+      // get user input
+      if(fgets(cmd_buf, sizeof(cmd_buf), stdin) == NULL || cmd_buf[0] == '\n')
+        continue;
+
+      // extract user command
+      cmd = strtok(cmd_buf, ", \n");
+
+      // attempt to open a chat session for this client
+      if(strcmp(cmd,"open") == 0) {
+        printf("chat session already opened\n");
+        continue;
+      }
+
+      if(strcmp(cmd, "<") == 0 || strcmp(cmd, "to") == 0 || strcmp(cmd, "who") == 0) {
+        printf("CMODDDDDSAIONF\n");
+        // determine if there is a message to write
+        if((msg = strtok(NULL, "\n")) != NULL) {
+          strcpy(write_buf, cmd);
+          printf("msg = %s\n", msg);
+          strcat(write_buf, " ");
+          strcat(write_buf, msg);
+        }
+
+        DEBUG_PRINT(("[debug] chat sesh: writing '%s' to descriptor %d\n", cmd, sockfd));
+
+        if((nwrote = write(sockfd, cmd, strlen(cmd))) != strlen(cmd)) {
+          perror("[error] write failed");
+          /* printf("\n*[oops! an error occured when sending your message. please try again...]*\n\n"); */
+          continue;
+        }
+      }
+
+      else if(strcmp(cmd, "close") == 0) {
+        // inform the server that we're closing
+        DEBUG_PRINT(("[client] writing %s to socket\n", msg));
+        if((nwrote = write(sockfd, cmd, strlen(cmd))) != strlen(cmd)) {
+          perror("[error] write failed");
+          // TODO handle error
+          continue;
+        }
+        usleep(100000);
+        _Exit(0);
+      }
+
+      else if(strcmp(cmd,"exit") == 0) {
+        // tell server we're exiting and close socket
+        DEBUG_PRINT(("[client] writing %s to socket\n", cmd));
+        if((nwrote = write(sockfd, cmd, strlen(cmd))) != strlen(cmd)) {
+          perror("[error] write failed");
+          // TODO handle error
+          continue;
+        }
+        // terminate
+        printf("exiting...\n");
+        _Exit(1);
+      }
+
+    } // while(1)
+  } // child proc
+
+  else {
+
+    while(1) {
+
+      if(waitpid(pid, &status, WNOHANG) == pid) {
+        DEBUG_PRINT(("[debug] exiting read process...\n"));
+        DEBUG_PRINT(("[debug] exit status was %d\n", WEXITSTATUS(status)));
+
+        // return 1 if we are to terminate the client
+        close(sockfd);
+
+        return WEXITSTATUS(status);
+      }
+
+      memset(read_buf, 0, sizeof(read_buf));
+      if((nread = read(sockfd, read_buf, sizeof(read_buf))) == -1) {
+        continue;
+      }
+
+      // nothing to write
+      else if(nread == 0) {
+        continue;
+      }
+
+      // echo incoming message to stdout
+      else {
+        DEBUG_PRINT(("[debug] client read proc: read from server!\n"));
+        printf("%s\n", read_buf);
+
+        // if the message is not from this user or the server
+        // re-display the user prompt
+        /* char buf[BUFMAX] = "\n["; */
+        /* strcat(buf, username); */
+        /* if((strncmp(read_buf, "[server]", 8) != 0) && (strncmp(read_buf, buf, strlen(buf)-1) != 0)) { */
+        /*   printf("a3chat_client: "); */
+        /*   fflush(stdout); */
+        /* } */
+      }
+    } // while(1)
+  } // parent
+  return 0;
+}
+
+
 /// Client process handling
 int begin_client(const char* portnumber, const char* server_addr) {
-  int status;
+  int status, on = 1;
   int nread, nwrote;
   int sockfd, s;
-  bool connected;
+  bool connected = false;
   char cmd_buf[BUFMAX], write_buf[BUFMAX], read_buf[BUFMAX];
   char* username;
   char* cmd;
@@ -632,202 +820,142 @@ int begin_client(const char* portnumber, const char* server_addr) {
     return -1;
   }
 
-  DEBUG_PRINT(("[debug] attempting conenction to server\n"));
+  DEBUG_PRINT(("[debug] calling socket()...\n"));
 
-  // get socket fd and attempt connection
-  // TODO protocol ?
-  sockfd = socket(AF_INET, SOCK_STREAM, 0);
+  printf("Chat client begins (server '%s' [%s], port %s)\n", lh->h_name, inet_ntoa(*addr_list[0]), portnumber);
 
-  if(connect(sockfd, (struct sockaddr*)&serv, sizeof(serv)) != 0)
-    perror("[error] connect");
+  while(1) {
+    usleep(100000);
 
-  // fork a child process for writing to the server
-  // the parent process will read from the server
-  pid_t pid = fork();
+    memset(cmd_buf, 0, sizeof(cmd_buf));
 
-  if(pid < 0) {
-    printf("fork error. exiting...\n\n");
-    return -1;
-  }
+    // user prompt
+    printf("a3chat_client: ");
+    fflush(stdout);
 
-  if(pid == 0) { // write process
-    printf("Chat client begins (server '%s' [%s], port %s)\n", lh->h_name, inet_ntoa(*addr_list[0]), portnumber);
+    // get user input
+    if(fgets(cmd_buf, sizeof(cmd_buf), stdin) == NULL || cmd_buf[0] == '\n')
+      continue;
 
-    while(1) {
-      usleep(100000);
+    // extract user command
+    cmd = strtok(cmd_buf, ", \n");
 
-      memset(cmd_buf, 0, sizeof(cmd_buf));
+    // attempt to open a chat session for this client
+    if(strcmp(cmd,"open") == 0) {
 
-      // user prompt
-      printf("a3chat_client: ");
-      fflush(stdout);
+      // get socket fd and attempt connection
+      // TODO protocol ?
+      sockfd = socket(AF_INET, SOCK_STREAM, 0);
 
-      // get user input
-      if(fgets(cmd_buf, sizeof(cmd_buf), stdin) == NULL || cmd_buf[0] == '\n')
+      // make socket (and inherited sockets) nonblocking
+      /* if(ioctl(sockfd, FIONBIO, (char *)&on) < 0) { */
+      /*   perror("[error] ioctl"); */
+      /*   close(sockfd); */
+      /*   return -1; */
+      /* } */
+
+      // connect with server's accept
+      if(connect(sockfd, (struct sockaddr*)&serv, sizeof(serv)) != 0) {
+        perror("[error] connect");
+        /* printf("could not connect to server. please try again.\n"); */
         continue;
-
-      // extract user command
-      cmd = strtok(cmd_buf, ", \n");
-
-      // attempt to open a chat session for this client
-      if(strcmp(cmd,"open") == 0) {
-
-        if(connected) {
-          printf("chat session already opened\n");
-          break;
-        }
-
-        // if username not specified, give the user a default username
-        if((username = strtok(NULL, "")) == NULL) {
-          char buf[10];
-          // TODO default users need numbers
-          sprintf(buf, "Default User");
-          username = buf;
-        }
-
-        // create message to send to server
-        strcat(msg, " ");
-        strcat(msg, username);
-
-        // write to server
-        DEBUG_PRINT(("[debug] writing %s to socket\n", msg));
-        if((nwrote = write(sockfd, cmd, strlen(cmd)+1)) != strlen(cmd)) {
-          printf("write error. could not connect to server. please try again...\n");
-          break;
-        }
-
-        memset(msg, 0, sizeof(read_buf));
-
-        // read server message
-        if((nread = read(sockfd, read_buf, sizeof(read_buf))) < 0) {
-          printf("unexpected read error. please try again...\n");
-          break;
-        }
-
-        /* if(nread == 0) { */
-        /*   printf("read error. server not responding. please wait...\n"); */
-        /*   // allow time for server to read message */
-        /*   sleep(1); */
-        /*   if((nread = read(sockfd, msg, sizeof(msg))) <= 0) { */
-        /*     printf("error connecting with server...\n"); */
-        /*     break; */
-        /*   } */
-        /* } */
-
-        // dump server response
-        printf("%s\n", read_buf);
-
-        // check server response for warnings/errors
-        if(strncmp(msg, "[server] error:", 15) == 0) {
-          DEBUG_PRINT(("[debug] client: server error. breaking\n"));
-          break;
-        }
-
-        connected = true;
-
-        printf("\n***chat session opened***\n");
-        printf("     welcome %s\n", username);
       }
 
-      if(strcmp(cmd, "<") == 0 || strcmp(cmd, "to") == 0 || strcmp(cmd, "who") == 0) {
-        if(connected) {
-          // determine if there is a message to write
-          if((msg = strtok(NULL, "\n")) != NULL) {
-            strcat(cmd, " ");
-            strcat(cmd, msg);
-          }
+      /* if(ioctl(sockfd, FIONBIO, (char *)&on) < 0) { */
+      /*   perror("[error] ioctl"); */
+      /*   close(sockfd); */
+      /*   return -1; */
+      /* } */
 
-          DEBUG_PRINT(("[debug] chat sesh: writing '%s' to ________\n", write_buf));
+      // if username not specified, give the user a default username
+      if((username = strtok(NULL, "")) == NULL) {
+        char buf[10];
+        // TODO default users need numbers
+        sprintf(buf, "Default User");
+        username = buf;
+      }
 
-          if((nwrote = write(sockfd, write_buf, strlen(write_buf))) != strlen(write_buf)) {
-            // notify user that message did not go through to server
-            printf("\n*[oops! an error occured when sending your message. please try again...]*\n\n");
+      // create message to send to server
+      memset(write_buf, 0, sizeof(write_buf));
+      strtok(username, "\n"); // strip newline
+      strcpy(write_buf, cmd);
+      strcat(write_buf, " ");
+      strcat(write_buf, username);
+
+      DEBUG_PRINT(("[debug] writing %s to socket\n", write_buf));
+
+      // write to server
+      if((nwrote = write(sockfd, write_buf, strlen(write_buf))) != strlen(write_buf)) {
+        printf("write error. could not connect to server. please try again...\n");
+        break;
+      }
+
+      DEBUG_PRINT(("[debug] reading from socket\n"));
+
+      // read server message
+      nread = 0;
+      do {
+        if((nread = recv(sockfd, read_buf, sizeof(read_buf), 0)) < 0) {
+          if(errno != EWOULDBLOCK)  {
+            perror("[error] recv()");
             continue;
           }
+          printf("server is unresponsive...\n");
+          /* continue; */
         }
-        else
-          printf("You are not connected to a chat session!\n");
+      } while(nread <= 0);
+
+      // dump server response
+      printf("%s\n", read_buf);
+
+      // check server response for warnings/errors
+      if(strncmp(read_buf, "[server] error:", 15) == 0) {
+        DEBUG_PRINT(("[debug] server error. breaking\n"));
+        break;
       }
 
-      else if(strcmp(cmd, "close") == 0) {
-        // if we are connected, we must inform the server that
-        // we're closing
-        if(connected) {
-          // write to server
-          DEBUG_PRINT(("[client] writing %s to socket\n", msg));
-          if((nwrote = write(sockfd, cmd, strlen(cmd)+1)) != strlen(cmd)) {
-            perror("[error] write failed");
-            break;
-          }
+      /* DEBUG_PRINT(("[debug] CONNECTED\n")); */
+      /* connected = true; */
 
-          // disconnect from the chat session
-          // everything else should be handled by the server
-          connected = false;
-          usleep(100000);
-        }
-        else
-          printf("No session to close\n");
+      printf("\n***chat session opened***\n");
+      printf("     welcome %s\n\n", username);
+
+      close(sockfd);
+
+      int ret;
+      ret = client_chat(username, portnumber, server_addr);
+
+      printf("\n    goodbye %s\n", username);
+      printf("***chat session closed***\n\n");
+
+      if(ret == 0) {
+       continue;
+
       }
-
-      else if(strcmp(cmd,"exit") == 0) {
-        // if we're connected, tell server we're exiting and close socket
-        if(connected) {
-          // write to server
-          DEBUG_PRINT(("[client] writing %s to socket\n", msg));
-          if((nwrote = write(sockfd, cmd, strlen(cmd)+1)) != strlen(cmd)) {
-            perror("[error] write failed");
-            break;
-          }
-          // disconnect from the chat session
-          connected = false;
-        }
-        // terminate
+      else if(ret == 1) {
         printf("exiting...\n");
-        _Exit(0);
+        return 0;
       }
-    } // while(1)
-  } // child proc
+      else
+        return -1;
+    }
 
-  else {
+    if(strcmp(cmd, "<") == 0 || strcmp(cmd, "to") == 0 || strcmp(cmd, "who") == 0) {
+      printf("You are not connected to a chat session!\n");
+    }
 
-    while(1) {
+    else if(strcmp(cmd, "close") == 0) {
+      printf("No session to close\n");
+    }
 
-      if(waitpid(pid, &status, WNOHANG) == pid) {
-        DEBUG_PRINT(("[debug]exiting read process...\n"));
-        DEBUG_PRINT(("[debug] exit status was %d\n", WEXITSTATUS(status)));
+    else if(strcmp(cmd,"exit") == 0) {
+      // terminate
+      printf("exiting...\n");
+      return 0;
+    }
 
-        // return 1 if we are to terminate the client
-        close(sockfd);
+  } // while(1)
 
-        return WEXITSTATUS(status);
-      }
-
-      memset(read_buf, 0, sizeof(read_buf));
-      if((nread = read(sockfd, read_buf, sizeof(read_buf))) == -1) {
-        continue;
-      }
-
-      // nothing to write
-      else if(nread == 0) {
-        continue;
-      }
-
-      // echo incoming message to stdout
-      else {
-        DEBUG_PRINT(("read %s from server\n", read_buf));
-        printf("%s\n", read_buf);
-
-        // if the message is not from this user or the server
-        // re-display the user prompt
-        /* char buf[BUFMAX] = "\n["; */
-        /* strcat(buf, username); */
-        /* if((strncmp(read_buf, "[server]", 8) != 0) && (strncmp(read_buf, buf, strlen(buf)-1) != 0)) { */
-        /*   printf("a3chat_client: "); */
-        /*   fflush(stdout); */
-        /* } */
-      }
-    } // while(1)
-  } // parent
   return 0;
 }
 
