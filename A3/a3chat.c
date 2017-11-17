@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <time.h>
+#include <math.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <errno.h>
@@ -35,6 +36,10 @@ typedef int bool;
 
 #define NMAX 5
 #define BUFMAX 1024
+#define KAL_char 0x6 // ACK
+#define KAL_length 5
+#define KAL_interval 5// seconds
+#define KAL_count 5 // number of tries before termination
 
 #define h_addr h_addr_list[0]
 
@@ -43,6 +48,7 @@ typedef int bool;
 typedef struct client_map {
   int chatters;
   bool connected;
+  int kal_misses;
   int descriptors[NMAX];
   char user[BUFMAX];
   // 0th descriptor is client's own
@@ -95,25 +101,38 @@ int begin_server(const char* portnumber, int nclients) {
     // NEW STUFF
     int i, j;
     int pr, nread, nwrote, on = 1;
-    int timeout;
     int listen_sd, comm_sd = -1;
     int curr_nlisteners, nlisteners = 1;
-    bool server_up = false, shrink_polls = false;
-    bool close_conn;
+    bool server_up = true, shrink_polls = false;
+    bool close_conn, destroy_client;
+    clock_t current, start;
+    double elapsed;
     char* cmd;
     char* args;
     char serv_msg[BUFMAX];
     char in_msg[BUFMAX];
     char out_msg[BUFMAX];
+    char kal_msg[BUFMAX];
     struct sockaddr_in serv;
-    /* struct pollfd fds[nlisteners+1]; */
     struct pollfd fds[nclients+1];
+
+    // create the keep alive message
+    /* get_kal_msg(kal_msg); */
+
+    /* int i; */
+    /* for(i=0;i<kal_length;i++) { */
+    /*   strcat(kal_msg, kal_char); */
+    /* } */
+
+    /***** temp ******/
+    strcpy(kal_msg, "ACK");
 
     // initialize clients
     for(i=0;i<nclients;i++) {
+      clients[i].kal_misses = 0;
       strcpy(clients[i].user,"");
       clients[i].chatters = 0;
-      clients[i].connected = false;
+      clients[i].connected = 0;
       for(j=0;j<nclients;j++)
         clients[i].descriptors[j] = 0;
     }
@@ -167,16 +186,84 @@ int begin_server(const char* portnumber, int nclients) {
 
     // define timeout to be 5 minutes
     // TODO put this in project report
-    timeout = (5*60*1000);
+    /* timeout = (5*60*1000); */
+
+    // start the clock
+    start = clock();
 
     do {
       // check if child process is terminated
       if(waitpid(pid, NULL, WNOHANG) == pid)
-        return 0;
+        server_up = false;
+
+      // if the KAL_interval has been reached, we can
+      // update the kal counter for each client
+      current = clock();
+      elapsed = ((double)current - (double)start)/(double)CLOCKS_PER_SEC;
+
+      if((nlisteners > 1) && (fmod((double)elapsed, (double)KAL_interval) == 0)) {
+      /* if((nlisteners > 1) && ((double)elapsed > (double)KAL_interval)) { */
+        /* start = clock(); */
+        for(i=1;i<nlisteners;i++) {
+          DEBUG_PRINT(("[debug] checking if max KAL misses have been reached for client[%d] = %s\n", i-1, clients[i-1].user));
+          DEBUG_PRINT(("current KAL misses = %d\n", clients[i-1].kal_misses));
+
+          // we can destroy the client and close the connection if
+          // the server hasn't read a KAL message from the client
+          // KAL_count consecutive times
+          if(++clients[i-1].kal_misses == KAL_count) {
+            DEBUG_PRINT(("[debug] maximum KAL misses reached.\n"));
+
+            // update clients who have the removed user as a recipient
+            int x;
+            for(j=0;j<nclients;j++) { // clients
+              for(x=0;x<=clients[j].chatters;x++) { // return fifos
+                if(clients[j].descriptors[x] == clients[i-1].descriptors[0] && clients[j].connected == 1) {
+                  clients[j].descriptors[x] = 0;
+                  clients[j].chatters--;
+                }
+              }
+            }
+
+            // remove allocated client assets
+            memset(&clients[i-1], 0, sizeof(clients[i-1]));
+
+            // clean up connection iff close_conn flag is set
+            close(fds[i].fd);
+            fds[i].fd = -1;
+
+            // shirink poll struct
+            DEBUG_PRINT(("[debug] shrinking polls\n"));
+            for(i=0;i<nlisteners;i++) {
+              if(fds[i].fd == -1) {
+                for(j=i;j<nlisteners;j++) {
+                  fds[j].fd = fds[j+1].fd;
+                  if(i != 0 && j != nlisteners-1) {
+                    clients[j-1] = clients[j];
+                  }
+                }
+                int n;
+                for(n=0;n<=clients[nlisteners-1].chatters;i++)
+                  clients[nlisteners-1].descriptors[n] = -1;
+                clients[nlisteners - 1].chatters = 0;
+                clients[nlisteners - 1].kal_misses = 0;
+                clients[nlisteners - 1].connected = 0;
+                memset(clients[nlisteners-1].user, 0, sizeof(clients[nlisteners-1].user));
+
+                /* memset(&clients[nlisteners - 1], 0, sizeof(clients[nlisteners - 1])); */
+
+                nlisteners--;
+                DEBUG_PRINT(("[debug] nlisteners is now %d\n", nlisteners));
+              }
+            }
+          }
+        }
+      }
 
       // call poll and wait
-      DEBUG_PRINT(("[debug] waiting on poll()...\n"));
-      pr = poll(fds, nclients+1, timeout);
+      /* DEBUG_PRINT(("[debug] waiting on poll()...\n")); */
+      /* pr = poll(fds, nclients+1, timeout); */
+      pr = poll(fds, nclients+1, 0);
 
       if(pr < 0) {
         perror("[error] poll");
@@ -184,8 +271,9 @@ int begin_server(const char* portnumber, int nclients) {
       }
 
       if(pr == 0) {
-        printf("server timed out. exiting...\n");
-        return 0;
+        /* printf("server timed out. exiting...\n"); */
+        /* return 0; */
+        continue;
       }
 
       // if we're here, there are one or more fds
@@ -249,6 +337,7 @@ int begin_server(const char* portnumber, int nclients) {
         else {
           DEBUG_PRINT(("[debug] descriptor %d (existing connection) is now readable\n", fds[i].fd));
           close_conn = false;
+          destroy_client = false;
 
           // read incomming data from socket
           do {
@@ -288,17 +377,29 @@ int begin_server(const char* portnumber, int nclients) {
 
             DEBUG_PRINT(("[debug] cmd [args]: %s [%s]\n", cmd, args));
 
+            // if the message sent is a Keep Alive Message, we don't
+            // want the server to process it
+            if(strcmp(cmd, kal_msg) == 0) {
+              DEBUG_PRINT(("[debug] KAL message recieved\n"));
+              clients[i-1].kal_misses = 0;
+              continue;
+            }
+
             // first time connecting
             // add user to list of users
-            if(strcmp(cmd, "open") == 0 && clients[i-1].connected == false) {
+            printf("YELLOW   cliesnts[%d].connected = %d\n", i-1, clients[i-1].connected);
+            if(strcmp(cmd, "open") == 0 && clients[i-1].connected != 1) {
               int x;
-              int exists = false;
+              int exists = 0;
 
               // check if username is taken by another client
               for(x=0;x<nclients;x++) {
                 if(strcmp(args, clients[x].user) == 0) {
                   DEBUG_PRINT(("[debug] user '%s' already exists!\n", clients[x].user));
-                  exists = true;
+
+                  exists = 1;
+                  close_conn = true;
+
                   sprintf(serv_msg, "[server] error: user '%s' already exists", args);
                 }
               }
@@ -310,7 +411,7 @@ int begin_server(const char* portnumber, int nclients) {
                 memset(clients[i-1].user, 0, sizeof(clients[i-1].user));
                 strcpy(clients[i-1].user, args);
 
-                clients[i-1].connected = true;
+                clients[i-1].connected = 1;
                 clients[i-1].descriptors[0] = fds[i].fd;
 
                 // create message for client
@@ -326,16 +427,17 @@ int begin_server(const char* portnumber, int nclients) {
               // write to each recipient's out-fifo that is part of the chat session
               for(j=0;j<=clients[i-1].chatters;j++) {
 
-                if(clients[j].connected == false)
+                if(clients[j].connected == 0)
                   continue;
 
                 DEBUG_PRINT(("[debug] server: writing out message '%s' to user %s (descriptor %d) \n", out_msg, clients[j].user, clients[j].descriptors[0]));
 
-                if((nwrote = send(clients[i-1].descriptors[j], out_msg, strlen(out_msg), 0)) < 0)
-
-
-                  sprintf(serv_msg, "[server] error: failed to send message to a user.");
-
+                if((nwrote = send(clients[i-1].descriptors[j], out_msg, strlen(out_msg), 0)) < 0) {
+                  if(j==0)
+                    sprintf(serv_msg, "[server] error: failed to echo message.");
+                  else
+                    sprintf(serv_msg, "[server] error: failed to send message to a chat user.");
+                }
               if(strncmp(serv_msg, "[server] error:", 15) != 0)
                 sprintf(serv_msg, "[server] done");
               }
@@ -359,7 +461,7 @@ int begin_server(const char* portnumber, int nclients) {
 
                   // if client is connected and recipeint list includes client username...
                   // add the client's return_fifos[0] to current sender's return_fifos
-                  if(clients[j].connected == true && strstr(args, clients[j].user) != NULL) {
+                  if(clients[j].connected == 1 && strstr(args, clients[j].user) != NULL) {
                     DEBUG_PRINT(("[debug] server: adding user %s's return-fifo\n", clients[j].user));
 
                     // increment the number of users connected to the chat session
@@ -418,9 +520,16 @@ int begin_server(const char* portnumber, int nclients) {
 
               DEBUG_PRINT(("[debug] server: removing user '%s' from clients\n", clients[i-1].user));
 
+              destroy_client = true;
               close_conn = true;
 
               sprintf(serv_msg, "[server] done");
+
+              if((nwrote = send(fds[i].fd, serv_msg, strlen(serv_msg), 0)) < 0) {
+                perror("[error] send failed");
+                /* close_conn = true; */
+                break;
+              }
             }
 
             // unsupported command. do nothing
@@ -432,39 +541,47 @@ int begin_server(const char* portnumber, int nclients) {
 
             if((nwrote = send(fds[i].fd, serv_msg, strlen(serv_msg), 0)) < 0) {
               perror("[error] send failed");
-              close_conn = true;
+              /* close_conn = true; */
               break;
             }
 
           } while(1);
 
-          // clean up connection and destroy client iff close_conn flag is set
-          if(close_conn) {
+          // remove allocated client assets
+          if(destroy_client) {
             // update clients who have the removed user as a recipient
             int x;
             for(j=0;j<nclients;j++) { // clients
               for(x=0;x<=clients[j].chatters;x++) { // return fifos
-                if(clients[j].descriptors[x] == clients[i-1].descriptors[0]) {
+                if(clients[j].descriptors[x] == clients[i-1].descriptors[0] && clients[j].connected == 1) {
                   clients[j].descriptors[x] = 0;
                   clients[j].chatters--;
                 }
               }
             }
 
-            clients[i-1].connected = false;
+            for(x=0;x<=clients[nlisteners-1].chatters;i++)
+              clients[nlisteners-1].descriptors[x] = -1;
+            clients[nlisteners - 1].chatters = 0;
+            clients[nlisteners - 1].kal_misses = 0;
+            clients[nlisteners - 1].connected = 0;
 
-            for(j=0;j<clients[i-1].chatters;j++)
-              clients[i-1].descriptors[j] = 0;
+            /* memset(&clients[i-1], 0, sizeof(clients[i-1])); */
+            /* DEBUG_PRINT(("[debug] clients[%d] destroyed.\n", i-1)); */
+            /* DEBUG_PRINT(("[debug] connected = %d\n", clients[i-1].connected)); */
+            /* DEBUG_PRINT(("[debug] chatters = %d\n", clients[i-1].chatters)); */
+            /* DEBUG_PRINT(("[debug] user = %s\n", clients[i-1].user)); */
+          }
 
-            clients[i-1].chatters = 0;
-            memset(clients[i-1].user, 0, strlen(clients[i-1].user));
-
+          // clean up connection iff close_conn flag is set
+          if(close_conn) {
             close(fds[i].fd);
             fds[i].fd = -1;
             shrink_polls = true;
           }
 
         } // existing cnnection
+
       } // for i in pollable sockets
 
       // shirink poll struct
@@ -474,17 +591,35 @@ int begin_server(const char* portnumber, int nclients) {
         for(i=0;i<nlisteners;i++) {
           if(fds[i].fd == -1) {
             for(j=i;j<nlisteners;j++) {
-              fds[j].fd = fds[i].fd;
-              if(i != 0)
-                clients[j-1] = clients[i-1];
+              fds[j].fd = fds[j+1].fd;
+              if(i != 0 && j != nlisteners-1) {
+                printf("YELLOW   clients[%d].connect = %d & clients[%d].connected = %d\n",j-1,clients[j-1].connected, j, clients[j].connected);
+                clients[j-1] = clients[j];
+              }
             }
+            int n;
+            for(n=0;n<=clients[nlisteners-1].chatters;i++)
+              clients[nlisteners-1].descriptors[n] = -1;
+            clients[nlisteners - 1].chatters = 0;
+            clients[nlisteners - 1].kal_misses = 0;
+            clients[nlisteners - 1].connected = 0;
+            /* DEBUG_PRINT(("[debug] nlisteners is now %d\n", nlisteners)); */
+            /* memset(clients[nlisteners-1].user, 0, sizeof(clients[nlisteners-1].user)); */
+
+            /* memset(&clients[nlisteners - 1], 0, sizeof(clients[nlisteners - 1])); */
+
+            /* client_map_t temp = {0}; */
+            /* printf("setting clients[%d] to 0\n", nlisteners-1); */
+            /* printf("%d\n", clients[nlisteners-1].connected); */
+            /* clients[nlisteners-1] = temp; */
+
             nlisteners--;
             DEBUG_PRINT(("[debug] nlisteners is now %d\n", nlisteners));
           }
         }
       }
 
-    } while(server_up == false);
+    } while(server_up == true);
 
     // clean up open sockets
     for(i=0;i<nlisteners;i++) {
@@ -499,11 +634,24 @@ int begin_server(const char* portnumber, int nclients) {
 /// Spawns a child process for reading from sockfd
 int client_chat(const char* username, int sockfd) {
   int status;
+  bool kal_sent;
   /* int sockfd; */
   int nread, nwrote;
   char cmd_buf[BUFMAX], read_buf[BUFMAX], write_buf[BUFMAX];
+  char kal_msg[BUFMAX];
   char* cmd;
   char* msg;
+
+  // create the keep alive message
+  /* get_kal_msg(kal_msg); */
+
+  /* int i; */
+  /* for(i=0;i<kal_length;i++) { */
+  /*   strcat(kal_msg, kal_char); */
+  /* } */
+
+  /***** temp ******/
+  strcpy(kal_msg, "ACK");
 
   // fork a child process for writing to the server
   // the parent process will read from the server
@@ -526,7 +674,11 @@ int client_chat(const char* username, int sockfd) {
       fflush(stdout);
 
       // get user input
-      if(fgets(cmd_buf, sizeof(cmd_buf), stdin) == NULL || cmd_buf[0] == '\n')
+      if(fgets(cmd_buf, sizeof(cmd_buf), stdin) == NULL) {
+        usleep(100000);
+        _Exit(0);
+      }
+      else if(cmd_buf[0] == '\n')
         continue;
 
       // extract user command
@@ -586,6 +738,7 @@ int client_chat(const char* username, int sockfd) {
   } // child proc
 
   else {
+    clock_t start = clock();
 
     while(1) {
 
@@ -598,6 +751,24 @@ int client_chat(const char* username, int sockfd) {
         // return 1 if we are to terminate the client
         return WEXITSTATUS(status);
       }
+
+      clock_t current = clock();
+      double elapsed = ((double)current - (double)start)/(double)CLOCKS_PER_SEC;
+
+      /* DEBUG_PRINT(("current = %g\n", (double)current/(double)CLOCKS_PER_SEC)); */
+      /* DEBUG_PRINT(("elapsed = %g\n", elapsed)); */
+      /* DEBUG_PRINT(("fmod = %g\n", fmod((double)elapsed, (double)KAL_interval))); */
+
+      // send keep alive message if KAL_interval time has elapsed
+      if(fmod((double)elapsed, (double)KAL_interval) == 0) {
+        if(kal_sent == false) {
+          /* DEBUG_PRINT(("[debug] sending KAL message...\n")); */
+          kal_sent = true;
+          send(sockfd, kal_msg, strlen(kal_msg), 0);
+        }
+      }
+      else
+        kal_sent = false;
 
       memset(read_buf, 0, sizeof(read_buf));
       if((nread = read(sockfd, read_buf, sizeof(read_buf))) == -1) {
@@ -616,12 +787,12 @@ int client_chat(const char* username, int sockfd) {
 
         // if the message is not from this user or the server
         // re-display the user prompt
-        /* char buf[BUFMAX] = "\n["; */
-        /* strcat(buf, username); */
-        /* if((strncmp(read_buf, "[server]", 8) != 0) && (strncmp(read_buf, buf, strlen(buf)-1) != 0)) { */
-        /*   printf("a3chat_client: "); */
-        /*   fflush(stdout); */
-        /* } */
+        char buf[BUFMAX] = "\n[";
+        strcat(buf, username);
+        if((strncmp(read_buf, "[server]", 8) != 0) && (strncmp(read_buf, buf, strlen(buf)) != 0)) {
+          printf("a3chat_client: ");
+          fflush(stdout);
+        }
       }
     } // while(1)
   } // parent
@@ -701,6 +872,7 @@ int begin_client(const char* portnumber, const char* server_addr) {
       sockfd = socket(AF_INET, SOCK_STREAM, 0);
 
       // connect with server's accept
+      // TODO connect hangs when client is using the wrong ip addr
       if(connect(sockfd, (struct sockaddr*)&serv, sizeof(serv)) != 0) {
         perror("[error] connect");
         /* printf("could not connect to server. please try again.\n"); */
@@ -715,9 +887,9 @@ int begin_client(const char* portnumber, const char* server_addr) {
 
       // if username not specified, give the user a default username
       if((username = strtok(NULL, "")) == NULL) {
-        char buf[10];
+        char buf[BUFMAX];
         // TODO default users need numbers
-        sprintf(buf, "Default User");
+        sprintf(buf, "Default User\n");
         username = buf;
       }
 
@@ -781,7 +953,7 @@ int begin_client(const char* portnumber, const char* server_addr) {
       int ret;
       ret = client_chat(username, sockfd);
 
-      printf("\n    goodbye %s\n", username);
+      printf("\n       goodbye %s\n", username);
       printf("***chat session closed***\n\n");
 
       if(ret == 0) {
