@@ -43,6 +43,8 @@ typedef int bool;
 
 #define h_addr h_addr_list[0]
 
+volatile sig_atomic_t print_flag = false;
+
 // stores information regarding a
 // client's current chat session
 typedef struct client_map {
@@ -51,7 +53,7 @@ typedef struct client_map {
   int kal_misses;
   int descriptors[NMAX];
   char user[BUFMAX];
-  // 0th descriptor is client's own
+  time_t timestamp;
 } client_map_t, *client_map_p;
 
 
@@ -59,6 +61,11 @@ int usage() {
   printf("usage: a2chat -s [portnumber nclient]\n");
   printf("       a2chat -c [portnumber serverAddress]\n");
   return -1;
+}
+
+/// Alarm signal handler
+void handle_alarm( int sig ) {
+    print_flag = true;
 }
 
 /// Helper function to remove substring
@@ -83,12 +90,15 @@ int begin_server(const char* portnumber, int nclients) {
     while(1) {
       // poll stdin
       scanf("%s", cmd);
+
       // terminate server
       if(strcmp(cmd, "exit") == 0) {
         printf("exiting server...\n");
         _Exit(EXIT_SUCCESS);
       }
+
       ppid_current = getppid();
+
       if(ppid_current != ppid_original) {
         DEBUG_PRINT(("[debug] parent process terminated. exiting...\n"));
         _Exit(EXIT_FAILURE);
@@ -98,7 +108,6 @@ int begin_server(const char* portnumber, int nclients) {
   else {
     client_map_t clients[nclients];
 
-    // NEW STUFF
     int i, j;
     int pr, nread, nwrote, on = 1;
     int listen_sd, comm_sd = -1;
@@ -126,6 +135,10 @@ int begin_server(const char* portnumber, int nclients) {
 
     /***** temp ******/
     strcpy(kal_msg, "ACK");
+
+    // install alarm handler
+    signal(SIGALRM, handle_alarm);
+    alarm(5);
 
     // initialize clients
     for(i=0;i<nclients;i++) {
@@ -184,10 +197,6 @@ int begin_server(const char* portnumber, int nclients) {
     fds[0].fd = listen_sd;
     fds[0].events = POLLIN;
 
-    // define timeout to be 5 minutes
-    // TODO put this in project report
-    /* timeout = (5*60*1000); */
-
     // start the clock
     start = clock();
 
@@ -196,14 +205,12 @@ int begin_server(const char* portnumber, int nclients) {
       if(waitpid(pid, NULL, WNOHANG) == pid)
         server_up = false;
 
-      // if the KAL_interval has been reached, we can
-      // update the kal counter for each client
       current = clock();
       elapsed = ((double)current - (double)start)/(double)CLOCKS_PER_SEC;
 
+      // if the KAL_interval has been reached, we can
+      // update the kal counter for each client
       if((nlisteners > 1) && (fmod((double)elapsed, (double)KAL_interval) == 0)) {
-      /* if((nlisteners > 1) && ((double)elapsed > (double)KAL_interval)) { */
-        /* start = clock(); */
         for(i=1;i<nlisteners;i++) {
           DEBUG_PRINT(("[debug] checking if max KAL misses have been reached for client[%d] = %s\n", i-1, clients[i-1].user));
           DEBUG_PRINT(("current KAL misses = %d\n", clients[i-1].kal_misses));
@@ -238,20 +245,21 @@ int begin_server(const char* portnumber, int nclients) {
               if(fds[i].fd == -1) {
                 for(j=i;j<nlisteners;j++) {
                   fds[j].fd = fds[j+1].fd;
-                  if(i != 0 && j != nlisteners-1) {
-                    clients[j-1] = clients[j];
+                  if(i != 0 ) {
+                    if(j == nclients) {
+                      int n;
+                      for(n=0;n<=clients[j-1].chatters;n++)
+                        clients[j-1].descriptors[n] = -1;
+                      clients[j-1].chatters = 0;
+                      clients[j-1].kal_misses = 0;
+                      clients[j-1].connected = 0;
+                      strcpy(clients[j-1].user, "");
+                    }
+                    else {
+                      clients[j-1] = clients[j];
+                    }
                   }
                 }
-                int n;
-                for(n=0;n<=clients[nlisteners-1].chatters;i++)
-                  clients[nlisteners-1].descriptors[n] = -1;
-                clients[nlisteners - 1].chatters = 0;
-                clients[nlisteners - 1].kal_misses = 0;
-                clients[nlisteners - 1].connected = 0;
-                memset(clients[nlisteners-1].user, 0, sizeof(clients[nlisteners-1].user));
-
-                /* memset(&clients[nlisteners - 1], 0, sizeof(clients[nlisteners - 1])); */
-
                 nlisteners--;
                 DEBUG_PRINT(("[debug] nlisteners is now %d\n", nlisteners));
               }
@@ -260,19 +268,28 @@ int begin_server(const char* portnumber, int nclients) {
         }
       }
 
+      // check if activity report is to be printed
+      if(print_flag && nlisteners > 1) {
+
+        // print activity report
+        printf("\nactivity report:\n");
+        for(i=1;i<nlisteners;i++) {
+          printf("'%s' [sockfd = %d]: %s", clients[i-1].user, clients[i-1].descriptors[0], ctime(&clients[i-1].timestamp));
+        }
+
+        print_flag = false;
+        alarm(5);
+      }
+
       // call poll and wait
-      /* DEBUG_PRINT(("[debug] waiting on poll()...\n")); */
-      /* pr = poll(fds, nclients+1, timeout); */
       pr = poll(fds, nclients+1, 0);
 
       if(pr < 0) {
         perror("[error] poll");
-        // TODO handle error
       }
 
+      // poll timeout
       if(pr == 0) {
-        /* printf("server timed out. exiting...\n"); */
-        /* return 0; */
         continue;
       }
 
@@ -280,7 +297,6 @@ int begin_server(const char* portnumber, int nclients) {
       // that have data to read.
       // now we have to determine which fds have data
       curr_nlisteners = nlisteners;
-      DEBUG_PRINT(("[debug] curr_nlisteners = %d\n", curr_nlisteners));
 
       for(i=0;i<curr_nlisteners;i++) {
 
@@ -317,9 +333,11 @@ int begin_server(const char* portnumber, int nclients) {
             // server may only accept a maximum of ncients clients
             if(nlisteners > nclients) {
               DEBUG_PRINT(("[debug] maximum descritors reached. skipping.\n"));
-              /* server_up = true; */
               continue;
             }
+
+            if(comm_sd == 0)
+              continue;
 
             // add new listener to poll struct
             DEBUG_PRINT(("[debug] new connection with descriptor: %d\n", comm_sd));
@@ -351,7 +369,6 @@ int begin_server(const char* portnumber, int nclients) {
                 perror("[error] recv failed");
                 close_conn = true;
               }
-              // TODO handle error
               break;
             }
 
@@ -382,12 +399,14 @@ int begin_server(const char* portnumber, int nclients) {
             if(strcmp(cmd, kal_msg) == 0) {
               DEBUG_PRINT(("[debug] KAL message recieved\n"));
               clients[i-1].kal_misses = 0;
-              continue;
+              break;
             }
+
+            // record client timestamp
+            time(&clients[i-1].timestamp);
 
             // first time connecting
             // add user to list of users
-            printf("YELLOW   cliesnts[%d].connected = %d\n", i-1, clients[i-1].connected);
             if(strcmp(cmd, "open") == 0 && clients[i-1].connected != 1) {
               int x;
               int exists = 0;
@@ -452,6 +471,7 @@ int begin_server(const char* portnumber, int nclients) {
 
               // attempt to find users to add to client's recipients
               else {
+                int skip = 0;
                 char connected_users[BUFMAX] = "";
 
                 // assert that the recipients are connected users
@@ -462,7 +482,20 @@ int begin_server(const char* portnumber, int nclients) {
                   // if client is connected and recipeint list includes client username...
                   // add the client's return_fifos[0] to current sender's return_fifos
                   if(clients[j].connected == 1 && strstr(args, clients[j].user) != NULL) {
-                    DEBUG_PRINT(("[debug] server: adding user %s's return-fifo\n", clients[j].user));
+                    DEBUG_PRINT(("[debug] server: adding user %s's descriptor\n", clients[j].user));
+
+                    int x;
+                    for(x=0;x<=clients[i-1].chatters;x++) {
+                      if(clients[i-1].descriptors[x] == clients[j].descriptors[0]) {
+                        DEBUG_PRINT(("[debug] user %s is already part of the chat\n", clients[j].user));
+                        sprintf(serv_msg, "[server] error: user %s is already connected to chat\n", clients[j].user);
+                        skip = 1;
+                        break;
+                      }
+                    }
+
+                    if(skip == 1)
+                      break;
 
                     // increment the number of users connected to the chat session
                     clients[i-1].chatters++;
@@ -488,7 +521,10 @@ int begin_server(const char* portnumber, int nclients) {
 
                 DEBUG_PRINT(("[debug] chatter is now '%d'\n", clients[i-1].chatters));
 
-                sprintf(serv_msg, "[server] recipients added: %s", connected_users);
+                if(skip != 1)
+                  sprintf(serv_msg, "[server] recipients added: %s", connected_users);
+
+                skip = 0;
               }
             }
 
@@ -525,11 +561,6 @@ int begin_server(const char* portnumber, int nclients) {
 
               sprintf(serv_msg, "[server] done");
 
-              if((nwrote = send(fds[i].fd, serv_msg, strlen(serv_msg), 0)) < 0) {
-                perror("[error] send failed");
-                /* close_conn = true; */
-                break;
-              }
             }
 
             // unsupported command. do nothing
@@ -544,6 +575,8 @@ int begin_server(const char* portnumber, int nclients) {
               /* close_conn = true; */
               break;
             }
+
+            break;
 
           } while(1);
 
@@ -560,13 +593,13 @@ int begin_server(const char* portnumber, int nclients) {
               }
             }
 
-            for(x=0;x<=clients[nlisteners-1].chatters;i++)
-              clients[nlisteners-1].descriptors[x] = -1;
-            clients[nlisteners - 1].chatters = 0;
-            clients[nlisteners - 1].kal_misses = 0;
-            clients[nlisteners - 1].connected = 0;
+            for(x=0;x<=clients[i-1].chatters;i++)
+              clients[i-1].descriptors[x] = -1;
+            clients[i - 1].chatters = 0;
+            clients[i - 1].kal_misses = 0;
+            clients[i - 1].connected = 0;
+            strcpy(clients[i-1].user, "");
 
-            /* memset(&clients[i-1], 0, sizeof(clients[i-1])); */
             /* DEBUG_PRINT(("[debug] clients[%d] destroyed.\n", i-1)); */
             /* DEBUG_PRINT(("[debug] connected = %d\n", clients[i-1].connected)); */
             /* DEBUG_PRINT(("[debug] chatters = %d\n", clients[i-1].chatters)); */
@@ -592,27 +625,23 @@ int begin_server(const char* portnumber, int nclients) {
           if(fds[i].fd == -1) {
             for(j=i;j<nlisteners;j++) {
               fds[j].fd = fds[j+1].fd;
-              if(i != 0 && j != nlisteners-1) {
-                printf("YELLOW   clients[%d].connect = %d & clients[%d].connected = %d\n",j-1,clients[j-1].connected, j, clients[j].connected);
-                clients[j-1] = clients[j];
+              if(i != 0 ) {
+                if(j == nclients) {
+                  int n;
+                  for(n=0;n<=clients[j-1].chatters;n++)
+                    clients[j-1].descriptors[n] = -1;
+                  clients[j-1].chatters = 0;
+                  clients[j-1].kal_misses = 0;
+                  clients[j-1].connected = 0;
+                  strcpy(clients[j-1].user, "");
+                }
+                else {
+                  /* printf("bef   clients[%d].connect = %d & clients[%d].connected = %d\n",j-1,clients[j-1].connected, j, clients[j].connected); */
+                  clients[j-1] = clients[j];
+                  /* printf("aft   clients[%d].connect = %d & clients[%d].connected = %d\n",j-1,clients[j-1].connected, j, clients[j].connected); */
+                }
               }
             }
-            int n;
-            for(n=0;n<=clients[nlisteners-1].chatters;i++)
-              clients[nlisteners-1].descriptors[n] = -1;
-            clients[nlisteners - 1].chatters = 0;
-            clients[nlisteners - 1].kal_misses = 0;
-            clients[nlisteners - 1].connected = 0;
-            /* DEBUG_PRINT(("[debug] nlisteners is now %d\n", nlisteners)); */
-            /* memset(clients[nlisteners-1].user, 0, sizeof(clients[nlisteners-1].user)); */
-
-            /* memset(&clients[nlisteners - 1], 0, sizeof(clients[nlisteners - 1])); */
-
-            /* client_map_t temp = {0}; */
-            /* printf("setting clients[%d] to 0\n", nlisteners-1); */
-            /* printf("%d\n", clients[nlisteners-1].connected); */
-            /* clients[nlisteners-1] = temp; */
-
             nlisteners--;
             DEBUG_PRINT(("[debug] nlisteners is now %d\n", nlisteners));
           }
@@ -635,7 +664,6 @@ int begin_server(const char* portnumber, int nclients) {
 int client_chat(const char* username, int sockfd) {
   int status;
   bool kal_sent;
-  /* int sockfd; */
   int nread, nwrote;
   char cmd_buf[BUFMAX], read_buf[BUFMAX], write_buf[BUFMAX];
   char kal_msg[BUFMAX];
@@ -675,6 +703,8 @@ int client_chat(const char* username, int sockfd) {
 
       // get user input
       if(fgets(cmd_buf, sizeof(cmd_buf), stdin) == NULL) {
+        printf("\nconnection with server lost. exiting...\n");
+        fflush(stdout);
         usleep(100000);
         _Exit(0);
       }
@@ -704,7 +734,6 @@ int client_chat(const char* username, int sockfd) {
 
         if((nwrote = write(sockfd, write_buf, strlen(write_buf))) != strlen(write_buf)) {
           perror("[error] write failed");
-          /* printf("\n*[oops! an error occured when sending your message. please try again...]*\n\n"); */
           continue;
         }
       }
@@ -714,7 +743,6 @@ int client_chat(const char* username, int sockfd) {
         DEBUG_PRINT(("[debug] writing %s to socket\n", cmd));
         if((nwrote = write(sockfd, cmd, strlen(cmd))) != strlen(cmd)) {
           perror("[error] write failed");
-          // TODO handle error
           continue;
         }
         usleep(100000);
@@ -726,7 +754,6 @@ int client_chat(const char* username, int sockfd) {
         DEBUG_PRINT(("[debug] writing %s to socket\n", cmd));
         if((nwrote = write(sockfd, cmd, strlen(cmd))) != strlen(cmd)) {
           perror("[error] write failed");
-          // TODO handle error
           continue;
         }
         // terminate
@@ -755,14 +782,9 @@ int client_chat(const char* username, int sockfd) {
       clock_t current = clock();
       double elapsed = ((double)current - (double)start)/(double)CLOCKS_PER_SEC;
 
-      /* DEBUG_PRINT(("current = %g\n", (double)current/(double)CLOCKS_PER_SEC)); */
-      /* DEBUG_PRINT(("elapsed = %g\n", elapsed)); */
-      /* DEBUG_PRINT(("fmod = %g\n", fmod((double)elapsed, (double)KAL_interval))); */
-
       // send keep alive message if KAL_interval time has elapsed
       if(fmod((double)elapsed, (double)KAL_interval) == 0) {
         if(kal_sent == false) {
-          /* DEBUG_PRINT(("[debug] sending KAL message...\n")); */
           kal_sent = true;
           send(sockfd, kal_msg, strlen(kal_msg), 0);
         }
@@ -810,7 +832,6 @@ int begin_client(const char* portnumber, const char* server_addr) {
   char* username;
   char* cmd;
 
-  // NEW STUFF
   struct hostent* lh;
   struct in_addr **addr_list;
   struct sockaddr_in serv;
@@ -834,7 +855,6 @@ int begin_client(const char* portnumber, const char* server_addr) {
   serv.sin_port = htons(atoi(portnumber));
 
   // convert server IP to binary representation
-  /* s = inet_pton(AF_INET, lh->h_addr, &(serv.sin_addr)); */
   s = inet_pton(AF_INET, inet_ntoa(*addr_list[0]), &(serv.sin_addr));
   if(s <= 0) {
     if(s == 0)
@@ -868,14 +888,12 @@ int begin_client(const char* portnumber, const char* server_addr) {
     if(strcmp(cmd,"open") == 0) {
 
       // get socket fd and attempt connection
-      // TODO protocol ?
       sockfd = socket(AF_INET, SOCK_STREAM, 0);
 
       // connect with server's accept
       // TODO connect hangs when client is using the wrong ip addr
       if(connect(sockfd, (struct sockaddr*)&serv, sizeof(serv)) != 0) {
         perror("[error] connect");
-        /* printf("could not connect to server. please try again.\n"); */
         continue;
       }
 
@@ -887,10 +905,8 @@ int begin_client(const char* portnumber, const char* server_addr) {
 
       // if username not specified, give the user a default username
       if((username = strtok(NULL, "")) == NULL) {
-        char buf[BUFMAX];
-        // TODO default users need numbers
-        sprintf(buf, "Default User\n");
-        username = buf;
+        printf("please provide a username\n");
+        continue;
       }
 
       // create message to send to server
@@ -905,7 +921,7 @@ int begin_client(const char* portnumber, const char* server_addr) {
       // write to server
       if((nwrote = write(sockfd, write_buf, strlen(write_buf))) != strlen(write_buf)) {
         printf("write error. could not connect to server. please try opening again...\n");
-        break;
+        continue;
       }
 
       DEBUG_PRINT(("[debug] reading from socket\n"));
