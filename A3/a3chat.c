@@ -56,6 +56,11 @@ typedef struct client_map {
   time_t timestamp;
 } client_map_t, *client_map_p;
 
+typedef struct dead_clients {
+  time_t tod; // time of death
+  char user[BUFMAX];
+  char descr[BUFMAX];
+} dead_clients_t;
 
 int usage() {
   printf("usage: a2chat -s [portnumber nclient]\n");
@@ -120,11 +125,13 @@ int begin_server(const char* portnumber, int nclients) {
   }
   else {
     client_map_t clients[nclients];
+    dead_clients_t dead_guys[10];
 
     int i, j;
     int pr, nread, nwrote, on = 1;
     int listen_sd, comm_sd = -1;
     int curr_nlisteners, nlisteners = 1;
+    int num_dead = 0;
     bool server_up = true, shrink_polls = false;
     bool close_conn, destroy_client;
     clock_t current, start;
@@ -143,7 +150,7 @@ int begin_server(const char* portnumber, int nclients) {
 
     // install alarm handler
     signal(SIGALRM, handle_alarm);
-    alarm(5);
+    alarm(15);
 
     // initialize clients
     for(i=0;i<nclients;i++) {
@@ -155,7 +162,12 @@ int begin_server(const char* portnumber, int nclients) {
         clients[i].descriptors[j] = 0;
     }
 
-    // TODO protocol ?
+    // initialize dead array
+    for(i=0;i<10;i++) {
+      strcpy(dead_guys[i].user, "");
+      strcpy(dead_guys[i].descr, "");
+    }
+
     // create AF_INET socket stream for incoming messages
     listen_sd = socket(AF_INET, SOCK_STREAM, 0);
     if(listen_sd < 0) {
@@ -206,7 +218,6 @@ int begin_server(const char* portnumber, int nclients) {
     start = clock();
 
     do {
-
       // check if child process is terminated
       if(waitpid(pid, NULL, WNOHANG) == pid)
         server_up = false;
@@ -236,6 +247,15 @@ int begin_server(const char* portnumber, int nclients) {
                   clients[j].chatters--;
                 }
               }
+            }
+
+            // add client to dead array
+            if(num_dead < 20) {
+              // record time of death
+              time(&dead_guys[num_dead].tod);
+              strcpy(dead_guys[num_dead].user, clients[i-1].user);
+              strcpy(dead_guys[num_dead].descr, "loss of keep alive messages deteccted at ");
+              num_dead++;
             }
 
             // remove allocated client assets
@@ -279,13 +299,16 @@ int begin_server(const char* portnumber, int nclients) {
 
         printf("\nactivity report:\n");
         for(i=1;i<nlisteners;i++) {
-          if(clients[i-1].descriptors[0] == 0)
-            continue;
-          printf("'%s' [sockfd = %d]: %s", clients[i-1].user, clients[i-1].descriptors[0], ctime(&clients[i-1].timestamp));
+          if(clients[i-1].descriptors[0] != 0)
+            printf("'%s' [sockfd = %d]: %s", clients[i-1].user, clients[i-1].descriptors[0], ctime(&clients[i-1].timestamp));
+        }
+        for(i=0;i<num_dead;i++) {
+          if(strcmp(dead_guys[i].user, "") != 0)
+            printf("'%s' [sockfd = -1]: %s %s", dead_guys[i].user, dead_guys[i].descr, ctime(&dead_guys[i].tod));
         }
         printf("\n");
         print_flag = false;
-        alarm(5);
+        alarm(15);
       }
 
       // call poll and wait
@@ -595,6 +618,15 @@ int begin_server(const char* portnumber, int nclients) {
                   clients[j].chatters--;
                 }
               }
+            }
+
+            // add client to dead array
+            if(num_dead < 20) {
+              // record time of death
+              time(&dead_guys[num_dead].tod);
+              strcpy(dead_guys[num_dead].user, clients[i-1].user);
+              strcpy(dead_guys[num_dead].descr, "closed chat session at ");
+              num_dead++;
             }
 
             for(x=0;x<clients[i-1].chatters;i++)
