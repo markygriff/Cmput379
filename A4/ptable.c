@@ -6,6 +6,7 @@
 #include <a4vmsim.h>
 #include <statistics.h>
 #include <ptable.h>
+#include <options.h>
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -14,14 +15,14 @@
 typedef struct ptable_level {
   uint size;
   uint log_size;
-  bool_t is_leaf;
+  uint is_leaf;
 } ptable_level_t;
 
 // default page table with multiple levels
 ptable_level_t levels[3] = {
-  { 4096, 12, FALSE },
-  { 4096, 12, FALSE },
-  { 256, 8, TRUE }
+  { 4096, 12, 0 },
+  { 4096, 12, 0 },
+  { 256, 8, 1 }
 };
 
 // vfn_bits is number of bits in the virtual frame number
@@ -69,18 +70,18 @@ pte_t* new_pte(uint vfn) {
 
   pte->vfn = vfn;
   pte->pfn = -1;
-  pte->valid = FALSE;
-  pte->modified = FALSE;
+  pte->valid = 0;
+  pte->modified = 0;
   pte->reference = 0;
 
   return pte;
 }
 
-pte_t* ptable_lookup_vaddr(uint vfn, ref_op_t operation) {
+pte_t* lookup_vaddr(uint vfn, ref_op_t operation) {
   return ptable_lookup_helper(vfn, 0, vfn, table_root, operation);
 }
 
-pte* ptable_lookup_helper(uint vfn, uint bits, uint masked_vfn,
+pte_t* ptable_lookup_helper(uint vfn, uint bits, uint masked_vfn,
 			                   ptable_t* pages, ref_op_t operation) {
   uint index;
   int log_size;
@@ -94,13 +95,13 @@ pte* ptable_lookup_helper(uint vfn, uint bits, uint masked_vfn,
 
   if (levels[pages->level].is_leaf) {
     if (pages->table[index] == NULL) {
-      pages->table[index] = (void*)ptable_new_pte(vfn);
+      pages->table[index] = (void*)new_pte(vfn);
     }
     return (pte_t*)(pages->table[index]);
   }
   else {
     if (pages->table[index] == NULL) {
-      pages->table[index] = ptable_new_table(pages->level+1);
+      pages->table[index] = new_ptable(pages->level+1);
     }
     return ptable_lookup_helper(vfn, bits, masked_vfn, pages->table[index],
 				                       operation);
@@ -110,7 +111,7 @@ pte* ptable_lookup_helper(uint vfn, uint bits, uint masked_vfn,
 void init_ptable() {
   int level;
   uint pbits, bits;
-  page_bits = log_2(opts.pagesize);
+  pbits = log_2(opts.pagesize);
   if (pbits == -1) {
     printf("Error: pagesize must be a power of 2\n");
     abort();
@@ -130,11 +131,7 @@ void init_ptable() {
 
   levels[level].log_size = levels[level].log_size - (bits - vfn_bits);
   levels[level].size = pow_2(levels[level].log_size);
-  levels[level].is_leaf = TRUE;
+  levels[level].is_leaf = 1;
 
-  root_table = pagetable_new_table(0)
-}
-
-pte_t* lookup_vaddr(uint vfn, ref_op_t operation) {
-
+  table_root = new_ptable(0);
 }

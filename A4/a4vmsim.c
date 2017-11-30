@@ -3,6 +3,8 @@
 #include <pfault.h>
 #include <statistics.h>
 #include <ptable.h>
+#include <memory.h>
+#include <options.h>
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -12,16 +14,15 @@
 #include <unistd.h>
 #include <sys/resource.h>
 
-// initialize global options
-opts_t opts;
 int references = 0;
 
 void init();
 void simulate();
+void print_stuff();
 
 int usage() {
   printf("usage: a4vmsim pagesize memsize strategy [none, mrand, lru, sec]\n");
-  Exit(1);
+  _Exit(1);
 }
 
 uint log_2(uint x) {
@@ -29,7 +30,7 @@ uint log_2(uint x) {
 
   for (i=0; i<(8*sizeof(x)); i++) {
     if (x & (1 << i)) {
-      /* we only want perfect powers of 2 */
+      // only accept powers of 2
       if (log != -1)
 	return -1;
       log = i;
@@ -43,10 +44,10 @@ uint pow_2(uint pow) {
 }
 
 ref_op_t get_op_type(char c) {
-	if (c[0] & 0b10000000)
+	if (c & 0b10)
     return REF_WRITE;
 
-	if (c[0] & 0b11000000)
+	if (c & 0b11)
     return REF_READ;
 
 	return REF_NULL;
@@ -55,6 +56,7 @@ ref_op_t get_op_type(char c) {
 void init() {
   init_ptable();
   init_mem();
+  init_stats();
 }
 
 void simulate() {
@@ -63,22 +65,24 @@ void simulate() {
   /***********/
   uint cnt = 0;
   uint virtual_addr;
-  char ref_str;
+  char ref_str[addr_bits/8];
   ref_op_t operation;
   pte_t* pte;
   fault_handler_t handler;
 
   stats->accumulator = 0;
+  vfn_bits = addr_bits - log_2(opts.pagesize);
   handler = opts.fault_handler->handler;
 
   printf("[a4vmsim] [page = %d, mem = %d, %s]\n",
-        opts.pagesize, opts.memsize, opts.handler->strategy);
+        opts.pagesize, opts.memsize, opts.fault_handler->strategy);
 
-  printf("vaddr (Virtual Address) has %d bits, consisting of higher %d bits for vfn (Virtual Frame Number), and lower %d bits for offset within each page (log_2(pagesize=%d))\n",
+  printf("virtual_addr has %d bits, consisting of higher %d bits for vfn (Virtual Frame Number), and lower %d bits for offset within each page (log_2(pagesize=%d))\n",
 	addr_bits, vfn_bits, log_2(opts.pagesize), opts.pagesize);
 
-  while(read(0, &ref_str, 4)) {
-    operation = get_op_type(ref_str);
+  while(read(0, ref_str, addr_bits/8)) {
+    operation = get_op_type(ref_str[3]);
+
     inc_references();
     cnt++;
 
@@ -86,13 +90,17 @@ void simulate() {
     if ((cnt % 100) == 0) {
       printf(".");
       fflush(stdout);
-      if ((count % (64 * 100)) == 0) {
+      if ((cnt % (64 * 100)) == 0) {
         printf("\n");
         fflush(stdout);
       }
     }
 
-    pte = ptable_lookup_vaddr(vaddr_to_vfn(vaddr), operation);
+    // convert ref string to uint
+    virtual_addr = atoi(ref_str);
+
+    // get the page table entry for the virtual address
+    pte = lookup_vaddr(vaddr_to_vfn(virtual_addr), operation);
 
     // check for page fault
     if(!pte->valid) {
@@ -118,6 +126,10 @@ void simulate() {
 
 }
 
+void print_stuff() {
+
+}
+
 /// Processes input arguments
 int main(int argc, const char* argv[]) {
 
@@ -134,7 +146,7 @@ int main(int argc, const char* argv[]) {
 
   // check if num of clients is valid
   if((isdigit(atoi(argv[1])) == -1) ||
-    (opts.pagesize) = atoi(argv[1])) < 256 ||
+    (opts.pagesize = atoi(argv[1])) < 256 ||
      opts.pagesize > 8192) {
     printf("Error: invalid pagesize. please choose from 2^8 to 2^13.\n");
     usage();
@@ -142,21 +154,19 @@ int main(int argc, const char* argv[]) {
   if((opts.pagesize & (opts.pagesize-1)) != 0)
     usage();
 
-  if((isdigit(argv[2])) == -1 || (opts.memsize = atoi(argv[2])) < opts.pagesize) {
+  if((isdigit(atoi(argv[2]))) == -1 || (opts.memsize = atoi(argv[2])) < opts.pagesize) {
     printf("Error: invalid memsize. must be greater than pagesize.\n");
     usage();
   }
 
   // determine which fault handler to use
-  opts.strategy = argv[3];
-
   fault_handler_stuff_t* that;
-  for(that = handler_map; that->strategy != NULL; func++) {
-    if(strcmp(that->strategy, opts.strategy) == 0) {
+  for(that = handler_map; that->strategy != NULL; that++) {
+    if(strcmp(that->strategy, argv[3]) == 0) {
       break;
     }
   }
-  if(that.strategy == NULL) {
+  if(that->strategy == NULL) {
     printf("Error: invalid strategy.\n");
     usage();
   }

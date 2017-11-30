@@ -1,18 +1,21 @@
 CC = gcc
-
-CFLAGS = -Wall -lm
+CFLAGS = -Wall
+INCLUDES = -I.
 
 TARGET = a4vmsim
+SRC = a4vmsim.c pfault.c ptable.c memory.c statistics.c options.c
+# OBJS = $(SRC:.c=.o)
 
-all: a4vmsim
+$(TARGET): $(OBJS)
+	$(CC) $(CFLAGS) $(INCLUDES) $(SRC) -o $(TARGET)
+
+all: $(TARGET)
 
 tar: submit
 
-a3chat:
-	@$(CC) $(TARGET).c $(CFLAGS) -o $(TARGET)
-
 submit:
-	@mkdir submit && cp $(TARGET).c submit && cp Makefile submit && cp ProjectReport.pdf submit && tar -cf submit.tar submit && rm -rf submit
+	@mkdir submit && cp $(TARGET).c submit && cp Makefile submit && \
+	cp ProjectReport.pdf submit && tar -cf submit.tar submit && rm -rf submit
 
 clean:
-	@rm -rf a4vmsim && rm -rf submit*;
+	@rm -f a4vmsim && rm -rf submit*;

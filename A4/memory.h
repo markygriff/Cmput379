@@ -18,7 +18,7 @@ void mem_evict(uint pfn, ref_op_t operation);
 
 /* lpad page into physical memory space (pfn)
  * assumes pfn is empty */
-void mem_load(uint pfn, pte_t* load_page ref_op_t operation);
+void mem_load(uint pfn, pte_t* load_page, ref_op_t operation);
 
 // gloabl physical memory array
 extern pte_t **pmem;

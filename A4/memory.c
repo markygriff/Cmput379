@@ -3,6 +3,7 @@
 #include <memory.h>
 #include <ptable.h>
 #include <statistics.h>
+#include <options.h>
 
 #include <assert.h>
 #include <stdlib.h>
@@ -35,7 +36,7 @@ void mem_load(uint pfn, pte_t* load_page, ref_op_t operation) {
   assert(load_page && !load_page->valid);
   assert(pmem[pfn] == NULL);
 
-  pmem[pfn] = new_page;
+  pmem[pfn] = load_page;
 
   pmem[pfn]->pfn = pfn;
   pmem[pfn]->reference = 0;

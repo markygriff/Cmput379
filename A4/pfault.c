@@ -2,6 +2,8 @@
 
 #include <a4vmsim.h>
 #include <pfault.h>
+#include <options.h>
+#include <memory.h>
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -16,11 +18,11 @@ fault_handler_stuff_t handler_map[5] = {
   { "rand", fault_rand },
   { "lru", fault_lru },
   { "sec", fault_sec },
-  { NULL, NULL } /* last entry must always be NULL/NULL */
+  { NULL, NULL } // for checking opts
 };
 
 void init_fault() {
-  // initialize fault_rand
+  // initialize fault_rand random num generator
   long s = 1234567;
   srandom(s);
 }
@@ -41,5 +43,5 @@ void fault_lru(pte_t* pte, ref_op_t operation){
 }
 
 void fault_sec(pte_t* pte, ref_op_t operation) {
-  static int c = 1
+  static int c = 1;
 }
