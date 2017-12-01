@@ -11,10 +11,12 @@
 #include <string.h>
 #include <ctype.h>
 #include <math.h>
+#include <time.h>
 #include <unistd.h>
 #include <sys/resource.h>
 
 int references = 0;
+double elapsed = 0;
 
 void init();
 void simulate();
@@ -44,31 +46,41 @@ uint pow_2(uint pow) {
 }
 
 ref_op_t get_op_type(char c) {
-	if (c & 0b10)
+	if ((c & (1<<7)) && !(c & (1<<6))) {// 10XXXXXX
+    inc_writes();
     return REF_WRITE;
+  }
 
-	if (c & 0b11)
+	if ((c & (1<<7)) && (c & (1<<6))) // 11XXXXXX
     return REF_READ;
+
+  if (!((c & (1<<7))) && !(c & (1<<6))) // 00XXXXXX
+    inc_accum(c & 0x3F);
+
+  else if (!(c & (1<<7)) && (c & (1<<6))) // 01XXXXXX
+    dec_accum(c & 0x3F);
 
 	return REF_NULL;
 }
 
 void init() {
+  // create page tables
   init_ptable();
+  // create physical memory array
   init_mem();
   init_stats();
 }
 
 void simulate() {
-  // the generated reference string is 32 bits = 4 bytes
-
-  /***********/
   uint cnt = 0;
   uint virtual_addr;
-  char ref_str[addr_bits/8];
+  unsigned char ref_str[addr_bits/8];
   ref_op_t operation;
   pte_t* pte;
   fault_handler_t handler;
+  clock_t start;
+
+  char* temp=malloc(10);
 
   stats->accumulator = 0;
   vfn_bits = addr_bits - log_2(opts.pagesize);
@@ -80,54 +92,62 @@ void simulate() {
   printf("virtual_addr has %d bits, consisting of higher %d bits for vfn (Virtual Frame Number), and lower %d bits for offset within each page (log_2(pagesize=%d))\n",
 	addr_bits, vfn_bits, log_2(opts.pagesize), opts.pagesize);
 
-  while(read(0, ref_str, addr_bits/8)) {
-    operation = get_op_type(ref_str[3]);
+  // start the clock
+  start = clock();
+
+  while(read(0, ref_str, addr_bits/8) != 0) {
+  // while(scanf("%x", ref_str) != 0) {
+
+    operation = get_op_type(ref_str[0]);
+
+    sprintf(temp, "0x%x%x%x%x", ref_str[3],ref_str[2],ref_str[1],ref_str[0]);
+
+    sscanf(temp, "%x", &virtual_addr);
 
     inc_references();
     cnt++;
 
     // print dots because it's cool
-    if ((cnt % 100) == 0) {
-      printf(".");
-      fflush(stdout);
-      if ((cnt % (64 * 100)) == 0) {
-        printf("\n");
-        fflush(stdout);
+    // if ((cnt % 50000) == 0) {
+    //   printf(".");
+    //   fflush(stdout);
+    //   if ((cnt % (64 * 50000)) == 0) {
+    //     printf("\n");
+    //     fflush(stdout);
+    //   }
+    // }
+
+    if(operation != REF_NULL) {
+      // get the page table entry for the virtual address
+      pte = lookup_vaddr(vaddr_to_vfn(virtual_addr), operation);
+
+      // check for page fault
+      if(!pte->valid) {
+        inc_faults();
+        // handle the page fault
+        handler(pte, operation);
       }
+
+      // update necessary page table entry parameters
+      if(pte->valid) {
+        pte->sec_chance = 1; // for sec
+
+        if(pte->modified)
+          inc_flushes();
+      }
+
+      pte->reference = 1; // set refence bit
+      pte->counter = references++;
+
+      if(operation == REF_WRITE)
+        pte->modified = 1;
     }
-
-    // convert ref string to uint
-    virtual_addr = atoi(ref_str);
-
-    // get the page table entry for the virtual address
-    pte = lookup_vaddr(vaddr_to_vfn(virtual_addr), operation);
-
-    // check for page fault
-    if(!pte->valid) {
-      inc_faults();
-      // handle the page fault
-      handler(pte, operation);
-    }
-
-    if(pte->valid) {
-      pte->chance = 1; // for sec
-
-      if(pte->modified)
-        inc_flushes();
-    }
-
-    pte->reference = 1; // set refence bit
-    pte->counter = references++;
-
-    if(operation == REF_WRITE)
-      pte->modified = 1;
   }
-  /***********/
-
+  elapsed = (clock() - (double)start)/(double)CLOCKS_PER_SEC;
 }
 
 void print_stuff() {
-
+  print_statistics(elapsed);
 }
 
 /// Processes input arguments
@@ -151,8 +171,8 @@ int main(int argc, const char* argv[]) {
     printf("Error: invalid pagesize. please choose from 2^8 to 2^13.\n");
     usage();
   }
-  if((opts.pagesize & (opts.pagesize-1)) != 0)
-    usage();
+  // if((opts.pagesize & (opts.pagesize-1)) != 0)
+  //   usage();
 
   if((isdigit(atoi(argv[2]))) == -1 || (opts.memsize = atoi(argv[2])) < opts.pagesize) {
     printf("Error: invalid memsize. must be greater than pagesize.\n");

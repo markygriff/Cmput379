@@ -17,8 +17,8 @@ void init_stats() {
 }
 
 void print_statistics() {
-  printf("[a4vmsim] %d references processed using ’%s’ in _____\n",
-        stats->references, opts.fault_handler->strategy);
+  printf("[a4vmsim] %d references processed using ’%s’ in %lf seconds\n",
+        stats->references, opts.fault_handler->strategy, elapsed);
   printf("[a4vmsim] page faults = %d, write count = %d, flushes = %d\n",
         stats->faults, stats->writes, stats->flushes);
   printf("[a4vmsim] accumulator = %d\n", stats->accumulator);

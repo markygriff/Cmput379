@@ -11,7 +11,7 @@ typedef struct pte {
   int modified;
   int valid; // true if in physmem
   int counter; // for lru
-  int chance; // for sec
+  int sec_chance; // for sec
   int reference;
 } pte_t;
 

@@ -16,6 +16,7 @@ typedef enum ref_operation {
 #define REF_TYPE_NUM 3
 
 extern uint vfn_bits;
+extern double elapsed;
 const static uint addr_bits = 32;
 
 static inline uint getbits(uint x, int p, int n) {

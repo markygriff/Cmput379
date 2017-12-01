@@ -41,4 +41,12 @@ static inline void inc_flushes() {
   stats->flushes++;
 }
 
+static inline void inc_accum(uint amount) {
+  stats->accumulator += amount;
+}
+
+static inline void dec_accum(uint amount) {
+  stats->accumulator -= amount;
+}
+
 #endif // STATISTICS_H

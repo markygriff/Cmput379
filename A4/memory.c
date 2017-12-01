@@ -17,6 +17,7 @@ void init_mem() {
 }
 
 void mem_evict(uint pfn, ref_op_t operation) {
+  // printf("fn = %d. num_pages = %d\n", pfn, opts.num_pages);
   assert(0 <= pfn && pfn < opts.num_pages);
 
   // no page here - nothing to do
@@ -25,7 +26,6 @@ void mem_evict(uint pfn, ref_op_t operation) {
     return;
   }
 
-  // pmem[pfn]->frequency=0;
   pmem[pfn]->modified = 0;
   pmem[pfn]->valid = 0;
   pmem[pfn] = NULL;
