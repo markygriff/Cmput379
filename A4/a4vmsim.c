@@ -45,6 +45,9 @@ uint pow_2(uint pow) {
   return 1 << pow;
 }
 
+/* returns the type of operation specified by the
+*  most significant bits of the least significant byte
+*  of the reference string */
 ref_op_t get_op_type(char c) {
 	if ((c & (1<<7)) && !(c & (1<<6))) {// 10XXXXXX
     inc_writes();
@@ -63,14 +66,14 @@ ref_op_t get_op_type(char c) {
 	return REF_NULL;
 }
 
+/* Initializes page tables, physical memory array, and statistic structure */
 void init() {
-  // create page tables
   init_ptable();
-  // create physical memory array
   init_mem();
   init_stats();
 }
 
+/* Main simulation control logic */
 void simulate() {
   uint cnt = 0;
   uint virtual_addr;
@@ -79,7 +82,6 @@ void simulate() {
   pte_t* pte;
   fault_handler_t handler;
   clock_t start;
-
   char* temp=malloc(10);
 
   stats->accumulator = 0;
@@ -89,33 +91,24 @@ void simulate() {
   printf("[a4vmsim] [page = %d, mem = %d, %s]\n",
         opts.pagesize, opts.memsize, opts.fault_handler->strategy);
 
-  printf("virtual_addr has %d bits, consisting of higher %d bits for vfn (Virtual Frame Number), and lower %d bits for offset within each page (log_2(pagesize=%d))\n",
-	addr_bits, vfn_bits, log_2(opts.pagesize), opts.pagesize);
+  // printf("virtual_addr has %d bits, consisting of higher %d bits for vfn (Virtual Frame Number), and lower %d bits for offset within each page (log_2(pagesize=%d))\n",
+	// addr_bits, vfn_bits, log_2(opts.pagesize), opts.pagesize);
 
-  // start the clock
+  // start timing the simulation
   start = clock();
 
+  // read input reference strings 4 bytes at a time
   while(read(0, ref_str, addr_bits/8) != 0) {
-  // while(scanf("%x", ref_str) != 0) {
 
     operation = get_op_type(ref_str[0]);
 
+    // create referenece string in the format 0xXXXXXXXX
     sprintf(temp, "0x%x%x%x%x", ref_str[3],ref_str[2],ref_str[1],ref_str[0]);
-
     sscanf(temp, "%x", &virtual_addr);
 
+    // increment the number of ref strings processed
     inc_references();
     cnt++;
-
-    // print dots because it's cool
-    // if ((cnt % 50000) == 0) {
-    //   printf(".");
-    //   fflush(stdout);
-    //   if ((cnt % (64 * 50000)) == 0) {
-    //     printf("\n");
-    //     fflush(stdout);
-    //   }
-    // }
 
     if(operation != REF_NULL) {
       // get the page table entry for the virtual address
@@ -129,12 +122,8 @@ void simulate() {
       }
 
       // update necessary page table entry parameters
-      if(pte->valid) {
+      if(pte->valid)
         pte->sec_chance = 1; // for sec
-
-        if(pte->modified)
-          inc_flushes();
-      }
 
       pte->reference = 1; // set refence bit
       pte->counter = references++;
@@ -143,6 +132,7 @@ void simulate() {
         pte->modified = 1;
     }
   }
+  // timestamp the simulation end
   elapsed = (clock() - (double)start)/(double)CLOCKS_PER_SEC;
 }
 

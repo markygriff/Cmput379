@@ -4,6 +4,7 @@
 #include <pfault.h>
 #include <options.h>
 #include <memory.h>
+#include <statistics.h>
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -29,12 +30,20 @@ void init_fault() {
 
 /* Do nothing? */
 void fault_none(pte_t* pte, ref_op_t operation) {
+  static int page = 0;
+
+  mem_load(page++, pte, operation);
 }
 
 /* Evict and replace page at random */
 void fault_rand(pte_t* pte, ref_op_t operation) {
     int page;
+
     page = random() % opts.num_pages;
+
+    if(pmem[page] != NULL && pmem[page]->modified)
+      inc_flushes();
+
     mem_evict(page, operation);
     mem_load(page, pte, operation);
 }
@@ -60,7 +69,12 @@ void fault_lru(pte_t* pte, ref_op_t operation){
       if(pmem[i]->counter < current_min)
         current_min = pmem[i]->counter;
         dat_boy = i;
+        break;
     }
+
+    if(pmem[dat_boy]->modified)
+      inc_flushes();
+
     mem_evict(dat_boy, operation);
     mem_load(dat_boy, pte, operation);
   }
@@ -92,6 +106,9 @@ void fault_sec(pte_t* pte, ref_op_t operation) {
         }
       }
     }
+
+    if(pmem[dat_boy]->modified)
+      inc_flushes();
 
     mem_evict(dat_boy, operation);
     mem_load(dat_boy, pte, operation);

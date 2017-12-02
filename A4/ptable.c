@@ -18,7 +18,7 @@ typedef struct ptable_level {
   uint is_leaf;
 } ptable_level_t;
 
-// default page table with multiple levels
+// default levels for the ptable
 ptable_level_t levels[3] = {
   { 4096, 12, 0 },
   { 4096, 12, 0 },
@@ -44,8 +44,7 @@ pte_t* ptable_lookup_helper(uint vfn, uint bits, uint masked_vfn,
 			                       ptable_t* pages, ref_op_t opearation);
 inline uint getbits(uint x, int p, int n);
 
-// void pagetable_test_entry(uint vfn, int l1, int l2);
-
+/* Allocates spcae for a new ptable_t */
 ptable_t* new_ptable(int level) {
   ptable_t* table;
   ptable_level_t* config;
@@ -63,6 +62,8 @@ ptable_t* new_ptable(int level) {
   return table;
 }
 
+/* Allocates space for a new page table entry
+*  and sets default parameters */
 pte_t* new_pte(uint vfn) {
   pte_t* pte;
   pte = (pte_t*)(malloc(sizeof(pte_t)));

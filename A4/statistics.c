@@ -16,6 +16,7 @@ void init_stats() {
   assert(stats);
 }
 
+/* Prints the simulation statistics to stdout */
 void print_statistics() {
   printf("[a4vmsim] %d references processed using ’%s’ in %lf seconds\n",
         stats->references, opts.fault_handler->strategy, elapsed);

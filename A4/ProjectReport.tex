@@ -1,0 +1,116 @@
+\documentclass{article}
+\usepackage{graphicx}
+\usepackage{bm}
+
+\begin{document}
+
+\title{CMPUT 379 Assignment 4}
+\author{Mark Griffith - 1422270}
+
+\maketitle
+
+\section{Objective}
+This assignment was an oppurtunity for myself to build experience
+working with a conceptual virtual memory system. It also allowed me to
+study and compare the efficiencies of several page fault handling strategies.
+
+\section{Design Overview}
+
+\textbf{Source Files:} a4vmsim.c pfault.c memory.c ptable.c options.c statistics.c \\
+\textbf{Executable:} a4vmsim pagesize memsize strategy\\
+\textbf{Makefile Options}: make $|$ make clean $|$ make tar \\
+
+\noindent
+\textbf{a4vmsim.c}: handles option parsing, program control flow, and vm simulation. \\
+
+\noindent
+\textbf{pfault.c}: defines page fault handler functions for the supported strategies
+(none, random, second chance, lru) \\
+- random: randomly chooses a page from physical memory array, evicts the page, and loads the new page
+to that memory location. \\
+- second chance: searches through physical memory array until the page has a chance of 0,
+evicts the page, and loads the new page. \\
+- lru: searches through the physical memor array until page with the minimum count is found,
+evicts the page, and loads the new page. \\
+
+\noindent
+\textbf{memory.c}: controls and models the physical memory for the simulation. \\
+- uses an array of page table entries to represent the physical memory (pmem). \\
+- defines memory eviction and memory loading functionality. \\
+
+\noindent
+\textbf{ptable.c}: models the page table and page table entries for the simulation. \\
+- defines the page table entry struct. \\
+- handles page table generation. \\
+- defines page table entry lookup functionality. \\
+
+\noindent
+\textbf{options.c}: stores the opts struct for global option parameters.
+
+\noindent
+\textbf{statistics.c}: handles simulation statistic are storing and printing. \\
+- defines global stats struct to store simulation statistics. \\
+- defines printing of final simulation output. \\
+
+\noindent
+\textbf{ Some things to note: } \\
+- \\
+
+\section{Project Status}
+This project currently implements all functionalities outlined in the
+assignment outline. \\
+
+\noindent
+The majority of the difficulity in the implementation of this
+assignment came from initially understanding how virtual memory works and
+more specifically, how to simulate it.
+Fortunately, I found that this gave me the oppurtunity to learn and
+better my understanding of virtual memory and how it is implemented. \\
+
+\section{Testing and Results}
+
+\noindent
+Testing for this assingment was done in two parts.
+
+\noindent
+\textbf{1. Unit Testing:}
+I first had to run some unit tests in order to prove that the program's individual
+functions were working properly. I did this manually by piping pre-generated
+reference strings (in a text file) into the program. These reference strings
+were designed to target specific functions, of which I knew the expected output
+behaviour. For simplicity, I created the reference strings in the format 0xXXXXXXXXX
+and so I had to alter how the program was translating the input. \\
+
+\noindent
+For example, if I wanted to test one of the page fault strategies,
+I would create reference strings that attempt to access the same memory location. \\
+
+\noindent
+\textbf{2. Stress Testing:}
+Due to the wide range of input parameters the program is required to handle, I needed
+to ensure it could properly handle as many combinations of those parameters as possible.
+Stress testing felt like an appropriate way of dealing with this.
+All I did for this was create a simple bash script that ran through many different input
+parameters. Since the program's simulation processes 20000000 ref strings in roughly
+30 seconds, I opted to stress test with a static number of generated reference strings -
+i.e. the nref argument of the mrefgen script was held around 2000000. This was sufficient
+becuase that number of ref strings would still trigger the virtual memory functionality
+and it allowed for testing to be performed rather quickly. \\
+
+\section{Acknowledgments}
+linux.die.net
+stackoverflow.com
+
+\end{document}
+
+
+
+
+
+
+
+
+
+
+
+
