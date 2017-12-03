@@ -182,7 +182,7 @@ int main(int argc, const char* argv[]) {
   }
 
   opts.fault_handler = that;
-  opts.num_pages = ceil(opts.memsize/opts.pagesize);
+  opts.num_pages = (opts.memsize % opts.pagesize) ? opts.memsize/opts.pagesize : opts.memsize/opts.pagesize + 1;
 
   init();
   simulate();

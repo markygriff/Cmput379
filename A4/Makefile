@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -Wall
+CFLAGS = -Wall -lm
 INCLUDES = -I.
 
 TARGET = a4vmsim
