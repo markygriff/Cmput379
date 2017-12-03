@@ -109,6 +109,7 @@ pte_t* ptable_lookup_helper(uint vfn, uint bits, uint masked_vfn,
   }
 }
 
+/* */
 void init_ptable() {
   int level;
   uint pbits, bits;
