@@ -16,7 +16,7 @@ static void fault_sec(pte_t* pte, ref_op_t operation);
 
 fault_handler_stuff_t handler_map[5] = {
   { "none", fault_none },
-  { "rand", fault_rand },
+  { "mrand", fault_rand },
   { "lru", fault_lru },
   { "sec", fault_sec },
   { NULL, NULL } // for checking opts
