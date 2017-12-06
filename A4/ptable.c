@@ -113,7 +113,10 @@ pte_t* ptable_lookup_helper(uint vfn, uint bits, uint masked_vfn,
 void init_ptable() {
   int level;
   uint pbits, bits;
+
+  // get the number of page bits
   pbits = log_2(opts.pagesize);
+
   if (pbits == -1) {
     printf("Error: pagesize must be a power of 2\n");
     abort();

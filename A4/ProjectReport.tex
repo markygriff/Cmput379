@@ -26,6 +26,7 @@ study and compare the efficiencies of several page fault handling strategies.
 \noindent
 \textbf{pfault.c}: defines page fault handler functions for the supported strategies
 (none, random, second chance, lru) \\
+- none: assumes there is enough memory to laad all pages. \\
 - random: randomly chooses a page from physical memory array, evicts the page, and loads the new page
 to that memory location. \\
 - second chance: searches through physical memory array until the page has a chance of 0,
@@ -37,6 +38,8 @@ evicts the page, and loads the new page. \\
 \textbf{memory.c}: controls and models the physical memory for the simulation. \\
 - uses an array of page table entries to represent the physical memory (pmem). \\
 - defines memory eviction and memory loading functionality. \\
+- when a page table entry is evicted, it becomes invalid. When a page table entry
+is loaded, it becomes valid. \\
 
 \noindent
 \textbf{ptable.c}: models the page table and page table entries for the simulation. \\
@@ -45,16 +48,12 @@ evicts the page, and loads the new page. \\
 - defines page table entry lookup functionality. \\
 
 \noindent
-\textbf{options.c}: stores the opts struct for global option parameters.
+\textbf{options.c}: stores the opts struct for global option parameters. \\
 
 \noindent
 \textbf{statistics.c}: handles simulation statistic are storing and printing. \\
 - defines global stats struct to store simulation statistics. \\
 - defines printing of final simulation output. \\
-
-\noindent
-\textbf{ Some things to note: } \\
-- \\
 
 \section{Project Status}
 This project currently implements all functionalities outlined in the
