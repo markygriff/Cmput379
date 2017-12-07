@@ -1,3 +1,5 @@
+# Mark Griffith 1422270
+
 CC = gcc
 CFLAGS = -Wall -lm
 INCLUDES = -I.
