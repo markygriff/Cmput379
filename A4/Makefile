@@ -17,7 +17,7 @@ all: $(TARGET)
 tar: submit
 
 submit:
-	mkdir submit && cp $(SRC) submit && cp $(HEADS) submit && cp Makefile submit && \
+	@mkdir submit && cp $(SRC) submit && cp $(HEADS) submit && cp Makefile submit && \
 	cp ProjectReport.pdf submit && tar -cf submit.tar submit && rm -rf submit
 
 clean:
